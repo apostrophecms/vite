@@ -1,37 +1,30 @@
 {
-  "name": "rich-text-enhancement",
+  "name": "@apostrophecms/vite",
   "version": "1.0.0",
-  "description": "A set of temporary extensions to add functionality to the rich-text-editor.",
+  "description": "Vite build flow for Apostrophe CMS projects.",
   "main": "index.js",
   "scripts": {
-    "eslint": "eslint --ext .js,.vue .",
+    "eslint": "eslint --ext .js .",
     "lint": "npm run eslint",
-    "test": "npm run lint && mocha"
+    "spec": "mocha",
+    "test": "npm run lint && npm run spec"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/bodonkey/rich-text-enhancement.git"
+    "url": "git+https://github.com/apostrophecms/vite.git"
   },
-  "homepage": "https://github.com/bodonkey/rich-text-enhancement#readme",
+  "homepage": "https://github.com/apostrophecms/vite#readme",
   "author": "Apostrophe Technologies",
   "license": "MIT",
   "devDependencies": {
-    "apostrophe": "github:apostrophecms/apostrophe",
+    "apostrophe": "github:apostrophecms/apostrophe#PRO-6660-module-before",
     "eslint": "^8.55.0",
     "eslint-config-apostrophe": "^4.2.0",
     "eslint-config-standard": "^17.1.0",
     "eslint-plugin-import": "^2.29.0",
     "eslint-plugin-node": "^11.1.0",
     "eslint-plugin-promise": "^6.1.1",
-    "eslint-plugin-vue": "^9.19.2",
-    "mocha": "^10.2.0",
-    "stylelint": "^15.11.0",
-    "stylelint-config-apostrophe": "^3.0.0",
-    "vue-eslint-parser": "^9.3.2"
+    "mocha": "^10.2.0"
   },
-  "dependencies": {
-    "@tiptap/extension-color": "^2.2.4",
-    "@tiptap/extension-font-family": "^2.2.4",
-    "@tiptap/extension-text-style": "^2.2.4"
-  }
+  "dependencies": {}
 }
