@@ -1,4 +1,4 @@
-const assert = require('assert').strict;
+const assert = require('node:assert/strict');
 const t = require('apostrophe/test-lib/util.js');
 
 const getAppConfig = () => {
@@ -8,14 +8,11 @@ const getAppConfig = () => {
         session: { secret: 'supersecret' }
       }
     },
-    '@apostrophecms/module': {
-      options: {
-      }
-    }
+    '@apostrophecms/vite': {}
   };
 };
 
-describe('@apostrophecms/module', function () {
+describe('@apostrophecms/vite', function () {
   let apos;
 
   this.timeout(t.timeout);
@@ -27,15 +24,15 @@ describe('@apostrophecms/module', function () {
   before(async function() {
     apos = await t.create({
       root: module,
-      baseUrl: 'http://localhost:3000',
       testModule: true,
+      autoBuild: false,
       modules: getAppConfig()
     });
   });
 
   describe('init', function() {
-    it('should have module enabled', function () {
-      const actual = Object.keys(apos.modules).includes('@apostrophecms/module');
+    it('should have vite enabled', function () {
+      const actual = Object.keys(apos.modules).includes('@apostrophecms/vite');
       const expected = true;
 
       assert.equal(actual, expected);

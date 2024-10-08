@@ -1,14 +1,7 @@
 module.exports = {
-  bundle: {
-    directory: 'modules',
-    modules: [ 'rich-text-color', 'rich-text-font' ]
-  },
+  before: '@apostrophecms/asset',
   i18n: {
-    aposRichTextEnhancement: {
-      browser: true
-    }
+    aposVite: {}
   },
-  init(self) {
-    console.log('👋 from the rich text widget enhancement!');
-  }
+  init(self) {}
 };
