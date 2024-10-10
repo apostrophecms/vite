@@ -8,7 +8,11 @@ const getAppConfig = () => {
         session: { secret: 'supersecret' }
       }
     },
-    '@apostrophecms/vite': {}
+    '@apostrophecms/vite': {
+      options: {
+        alias: 'vite'
+      }
+    }
   };
 };
 
@@ -36,6 +40,14 @@ describe('@apostrophecms/vite', function () {
       const expected = true;
 
       assert.equal(actual, expected);
+      assert.equal(apos.asset.getBuildModuleAlias(), 'vite');
+      assert.equal(apos.asset.getBuildModuleConfig().name, '@apostrophecms/vite');
+    });
+  });
+
+  describe('build', function() {
+    it('should copy files', async function() {
+      await apos.vite.build();
     });
   });
 });
