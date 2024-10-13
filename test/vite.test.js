@@ -24,7 +24,7 @@ describe('@apostrophecms/vite', function () {
 
   this.timeout(t.timeout);
 
-  after(function () {
+  after(async function () {
     return t.destroy(apos);
   });
 
@@ -48,7 +48,7 @@ describe('@apostrophecms/vite', function () {
     });
   });
 
-  describe('build', function () {
+  describe('Build', function () {
     before(async function () {
       await t.destroy(apos);
       apos = await t.create({
@@ -112,11 +112,13 @@ describe('@apostrophecms/vite', function () {
         })
       });
     });
-    it('should copy files and generate entrypoints', async function () {
+    it('should copy source files and generate entrypoints', async function () {
+      await apos.vite.cleanUpBuildRoot();
       const build = async () => {
         await apos.vite.cleanUpBuildRoot();
-        apos.vite.currentSourceMeta = await apos.vite.computeSourceMeta({ copy: true });
-        await apos.vite.createImports();
+        apos.vite.currentSourceMeta = await apos.vite.computeSourceMeta({ copyFiles: true });
+        const entrypoints = apos.asset.getBuildEntrypoints();
+        await apos.vite.createImports(entrypoints);
       };
       await build();
       const rootDir = apos.vite.buildRoot;
@@ -261,6 +263,48 @@ describe('@apostrophecms/vite', function () {
         );
         assert.equal(match?.length, 1, 'article-widget carousel.js should be imported once');
       }
+    });
+
+    it('should copy public bundled assets', async function () {
+      await apos.vite.cleanUpBuildRoot();
+      const build = async () => {
+        await apos.vite.cleanUpBuildRoot();
+        apos.vite.currentSourceMeta = await apos.vite.computeSourceMeta({ copyFiles: false });
+        const entrypoints = apos.asset.getBuildEntrypoints();
+        await apos.vite.copyExternalBundledAssets(entrypoints);
+      };
+      const rootDir = apos.vite.buildRoot;
+
+      await build();
+
+      {
+        const stat = await fs.stat(path.join(rootDir, 'public.js'));
+        const content = await fs.readFile(path.join(rootDir, 'public.js'), 'utf8');
+
+        const expected = 'console.log(\'public/article.js\');console.log(\'public/nested/article.js\');';
+        const actual = content.replace(/\s/g, '');
+
+        assert.ok(stat.isFile());
+        assert.equal(actual, expected, 'unexpected public.js content');
+      }
+
+      {
+        const stat = await fs.stat(path.join(rootDir, 'public.css'));
+        const content = await fs.readFile(path.join(rootDir, 'public.css'), 'utf8');
+
+        const expected = '.article-main{margin:0;}.article-nested-main{margin:0;}';
+        const actual = content.replace(/\s/g, '');
+
+        assert.ok(stat.isFile());
+        assert.equal(actual, expected, 'unexpected public.css content');
+      }
+    });
+
+    it('should build ', async function () {
+      await apos.vite.cleanUpBuildRoot();
+      await apos.task.invoke('@apostrophecms/asset:build', {
+        'check-apos-build': false
+      });
     });
   });
 });
