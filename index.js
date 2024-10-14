@@ -6,12 +6,17 @@ module.exports = {
     aposVite: {}
   },
   init(self) {
+    self.buildSourceFolderName = 'src';
+    self.distSourceFolderName = 'src';
     self.buildRoot = null;
     self.buildRootSource = null;
+    self.distRoot = null;
     self.buildModules = [];
+    self.buildManifestPath = null;
 
     // Cached metadata for the current run
     self.currentSourceMeta = null;
+    self.entrypointsManifest = [];
   },
   handlers(self) {
     return {
@@ -38,28 +43,29 @@ module.exports = {
         await self.copyExternalBundledAssets(entrypoints);
 
         const { build, config } = await self.getViteBuild(options);
-        // console.log('VITE CONFIG', require('util').inspect(config, {
-        //   depth: null,
-        //   colors: true
-        // }));
         try {
           await build(config);
-          // const result = await build(config);
-          // console.log('VITE BUILD RESULT', require('util').inspect(result, {
-          //   depth: null,
-          //   colors: true
-          // }));
         } catch (e) {
-          console.error('VITE BUILD ERROR', e.message);
+          self.apos.util.error(e.message);
         }
-      },
 
+        self.entrypointsManifest = await self.applyViteManifest(self.entrypointsManifest);
+
+        return self.getBuildManifest();
+      },
+      getBuildManifest() {
+        return {
+          distRoot: self.distRoot,
+          entrypoints: self.entrypointsManifest
+        };
+      },
       // Private methods
       async initWhenReady() {
         self.buildRoot = self.apos.asset.getBuildRootDir();
-        self.buildRootSource = path.join(self.buildRoot, 'src');
+        self.buildRootSource = path.join(self.buildRoot, self.buildSourceFolderName);
         self.buildModules = self.apos.modulesToBeInstantiated();
-        self.entrypointsManifest = [];
+        self.distRoot = path.join(self.buildRoot, 'dist');
+        self.buildManifestPath = path.join(self.distRoot, '.vite/manifest.json');
 
         await fs.mkdir(self.buildRootSource, { recursive: true });
       },
@@ -111,12 +117,7 @@ module.exports = {
 
           self.entrypointsManifest.push({
             ...entrypoint,
-            manifest: [
-              {
-                path: output.importFile,
-                type: 'js'
-              }
-            ]
+            manifest: self.toViteManifestFormat(entrypoint)
           });
         }
       },
@@ -128,8 +129,6 @@ module.exports = {
             continue;
           }
           const filesByOutput = self.getExternalBundleFiles(entrypoint, self.currentSourceMeta);
-          // FIXME - standard manifest format derived from vite build manifest format.
-          const manifest = [];
 
           for (const [ output, files ] of Object.entries(filesByOutput)) {
             const importFile = path.join(self.buildRoot, `${entrypoint.name}.${output}`);
@@ -142,16 +141,76 @@ module.exports = {
               prologue: entrypoint.prologue,
               raw
             });
-
-            manifest.push({
-              path: importFile,
-              type: output
-            });
           }
           self.entrypointsManifest.push({
             ...entrypoint,
-            manifest
+            manifest: self.toViteManifestFormat(entrypoint)
           });
+        }
+      },
+      // Same as vite manifest but with `path` that contains the full path to the file.
+      async applyViteManifest(entrypoints) {
+        // Here we can add the chunking/splitting support in the future.
+        const viteManifest = Object.values(await self.getViteBuildManifest())
+          .filter((entry) => entry.isEntry);
+
+        const result = [];
+        for (const entrypoint of entrypoints) {
+          const manifest = viteManifest
+            .find((entry) => entry.name === entrypoint.name);
+
+          // The entrypoint marked as `bundle: false` is not processed by Vite.
+          if (manifest) {
+            entrypoint.manifest = {
+              root: self.distRoot,
+              ...manifest
+            };
+          }
+          result.push(entrypoint);
+        }
+
+        return result;
+      },
+      // Accepts an entrypoint and returns a Vite manifest-like object (or null).
+      // The difference is `devServer` boolean - true when
+      // the `src` should be served by the dev server. When false,
+      // the `file` should be server by the apostrophe server.
+      // There is also a `root` property that is the absolute path to the fodler
+      // containing the `file` or `src`.
+      toViteManifestFormat(entrypoint) {
+        if (!entrypoint.bundle) {
+          const result = {
+            root: self.buildRoot,
+            devServer: false,
+            name: entrypoint.name,
+            file: entrypoint.outputs.includes('js') ? `${entrypoint.name}.js` : '',
+            src: false,
+            isEntry: true,
+            css: entrypoint.outputs.filter((type) => type !== 'js')
+              .map((type) => `${entrypoint.name}.${type}`)
+          };
+          if (result.file || result.css.length) {
+            return result;
+          }
+          return null;
+        }
+        return {
+          root: self.distRoot,
+          devServer: true,
+          name: entrypoint.name,
+          file: false,
+          src: path.join(self.buildSourceFolderName, `${entrypoint.name}.js`),
+          isEntry: true,
+          // In development (when devServer is running), there are no CSS files.
+          // They are available only in real (rollup) build.
+          css: []
+        };
+      },
+      async getViteBuildManifest() {
+        try {
+          return await fs.readJson(self.buildManifestPath);
+        } catch (e) {
+          return {};
         }
       },
       // Generate the import file for an entrypoint.
@@ -337,6 +396,7 @@ module.exports = {
             path.join(self.buildRootSource, `${entrypoint.name}.js`)
           ]));
         const input = Object.fromEntries(entrypoints);
+        const cssRegex = /\.([s]?[ac]ss)$/;
 
         return {
           // FIXME: passed down from the build module
@@ -356,6 +416,17 @@ module.exports = {
                 @use 'sass:math';
                 @import "${self.buildRootSource}/@apostrophecms/ui/apos/scss/mixins/import-all.scss";
                 `
+                // FIXME: still no luck with fixing our /modules/ URLs.
+                // importers: [ {
+                //   // An importer that redirects relative URLs starting with "~" to
+                //   // `node_modules`.
+                //   findFileUrl(url) {
+                //     if (url.startsWith('/modules/')) {
+                //       console.log('FOUND MODULE URL', url);
+                //     }
+                //     return null;
+                //   }
+                // } ]
               }
             }
           },
@@ -367,18 +438,22 @@ module.exports = {
             outDir: 'dist',
             cssCodeSplit: true,
             manifest: true,
+            sourcemap: true,
             emptyOutDir: true,
             assetDir: 'assets',
             rollupOptions: {
-              // FIXME: compile from the entrypoint configuration
               input,
-              // input: {
-              // // 'apos-build': './apos-build/vite/src/apos.js',
-              //   src: path.join(self.buildRootSource, 'src.js')
-              // },
               output: {
-                entryFileNames: '[name]-build.js'
-                // assetFileNames: '[name]-build[extname]'
+                entryFileNames: '[name]-build.js',
+                // Keep the original build hashed CSS file names.
+                // They will be processed by the post build system where
+                // we provide a build manifest.
+                // assetFileNames: '[name]-build[extname]',
+                banner: (chunk) => {
+                  if (chunk.isEntry) {
+                    return `/* Generated by ApostropheCMS -  ${chunk.name}: ${chunk.fileName}  */`;
+                  }
+                }
               }
             }
           }
@@ -386,7 +461,7 @@ module.exports = {
 
         function myPlugin() {
           return {
-            name: 'my-plugin',
+            name: 'vite-plugin-apostrophe',
             async resolveId(source, importer, options) {
               if (!source.startsWith('Modules/')) {
                 return null;
@@ -403,12 +478,28 @@ module.exports = {
                 options
               );
               if (!resolved) {
-                console.log('[resolveId] RESOLVE FAILED',
-                  source,
-                  path.join(self.buildRootSource, moduleName, 'apos', ...chunks)
+                // FIXME - log system
+                console.error('APOS MODULE RESOLVE FAILED!',
+                  'FROM: ' + source,
+                  'TO' + path.join(self.buildRootSource, moduleName, 'apos', ...chunks)
                 );
               }
               return resolved;
+            },
+            // Transform `/modules/` URLs in CSS files to the correct asset URL.
+            async transform(src, id) {
+              if (cssRegex.test(id.split('?')[0]) && src.includes('/modules/')) {
+                return {
+                  code: self.apos.asset.filterCss(src, {
+                    // FIXME: this should be another asset URL - here we need
+                    // the ACTUAL apos URL and not the dev server one.
+                    // We need to have a getAssetBaseUrlPath method and use
+                    // the apos baseUrl to build the url here.
+                    modulesPrefix: `${self.apos.asset.getAssetBaseUrl()}/modules`
+                  }),
+                  map: null
+                };
+              }
             }
           };
         }
