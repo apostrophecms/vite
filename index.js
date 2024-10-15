@@ -17,6 +17,15 @@ module.exports = {
     // Cached metadata for the current run
     self.currentSourceMeta = null;
     self.entrypointsManifest = [];
+
+    // IMPORTANT: This should not be removed.
+    // Vite depends on both process.env.NODE_ENV and the `mode` config option.
+    // They should be in sync and ALWAYS set. We need to patch the environment
+    // and ensure it's set here.
+    // Read more at https://vite.dev/guide/env-and-mode.html#node-env-and-modes
+    if (!process.env.NODE_ENV) {
+      process.env.NODE_ENV = 'development';
+    }
   },
   handlers(self) {
     return {
@@ -41,6 +50,12 @@ module.exports = {
         const entrypoints = self.apos.asset.getBuildEntrypoints();
         await self.createImports(entrypoints);
         await self.copyExternalBundledAssets(entrypoints);
+        // Copy the public files so that Vite is not complaining about missing files
+        // while building the project.
+        await fs.copy(
+          path.join(self.apos.asset.getBundleRootDir(), 'modules'),
+          path.join(self.buildRoot, 'modules')
+        );
 
         const { build, config } = await self.getViteBuild(options);
         try {
@@ -398,7 +413,8 @@ module.exports = {
         const input = Object.fromEntries(entrypoints);
         const cssRegex = /\.([s]?[ac]ss)$/;
 
-        return {
+        /** @type {import('vite').UserConfig} */
+        const config = {
           // FIXME: passed down from the build module
           mode: process.env.NODE_ENV === 'production' ? 'production' : 'development',
           root: self.buildRoot,
@@ -458,6 +474,8 @@ module.exports = {
             }
           }
         };
+
+        return config;
 
         function myPlugin() {
           return {
