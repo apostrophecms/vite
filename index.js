@@ -23,9 +23,9 @@ module.exports = {
     // They should be in sync and ALWAYS set. We need to patch the environment
     // and ensure it's set here.
     // Read more at https://vite.dev/guide/env-and-mode.html#node-env-and-modes
-    // if (!process.env.NODE_ENV) {
-    //   process.env.NODE_ENV = 'development';
-    // }
+    if (!process.env.NODE_ENV) {
+      process.env.NODE_ENV = 'development';
+    }
   },
   handlers(self) {
     return {
@@ -58,13 +58,9 @@ module.exports = {
         );
 
         // Always build in production mode.
-        const { build, config } = await self.getViteBuild({
-          ...options,
-          mode: 'production'
-        });
+        const { build, config } = await self.getViteBuild(options);
         try {
           const currentEnv = process.env.NODE_ENV;
-          // process.env.NODE_ENV = 'production';
           await build(config);
           process.env.NODE_ENV = currentEnv;
         } catch (e) {
@@ -460,7 +456,6 @@ module.exports = {
             myPlugin(), vue.default()
           ],
           build: {
-            minify: false,
             chunkSizeWarningLimit: 2000,
             outDir: 'dist',
             cssCodeSplit: true,
