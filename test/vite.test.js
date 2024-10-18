@@ -13,7 +13,8 @@ const getAppConfig = (modules = {}) => {
     '@apostrophecms/vite': {
       options: {
         alias: 'vite'
-      }
+      },
+      before: '@apostrophecms/asset'
     },
     ...modules
   };
@@ -45,6 +46,129 @@ describe('@apostrophecms/vite', function () {
       assert.equal(actual, expected);
       assert.equal(apos.asset.getBuildModuleAlias(), 'vite');
       assert.equal(apos.asset.getBuildModuleConfig().name, '@apostrophecms/vite');
+    });
+  });
+
+  describe('specs', function () {
+    before(async function () {
+      await t.destroy(apos);
+      apos = await t.create({
+        root: module,
+        testModule: true,
+        autoBuild: false,
+        modules: getAppConfig()
+      });
+    });
+    it.only('should have vite enabled', async function () {
+      const manifest = {
+        // Circular dependency with `bar.js`
+        '_shared-dependency.js': {
+          file: 'assets/shared-dependency.js',
+          name: 'shared-dependency',
+          css: [
+            'assets/shared-dependency.css'
+          ],
+          dynamicImports: [ 'bar.js' ]
+        },
+        'modules/asset/images/background.png': {
+          file: 'assets/background.png',
+          src: 'modules/asset/images/background.png'
+        },
+        'baz.js': {
+          file: 'assets/baz.js',
+          name: 'baz',
+          src: 'baz.js',
+          imports: [
+            '_shared-dependency.js'
+          ],
+          css: [
+            'assets/baz.css'
+          ],
+          isDynamicEntry: true
+        },
+        // Circular dependency with `shared-dependency.js`
+        'bar.js': {
+          file: 'assets/bar.js',
+          name: 'bar',
+          src: 'bar.js',
+          imports: [
+            '_shared-dependency.js'
+          ],
+          css: [
+            'assets/bar.css'
+          ],
+          isDynamicEntry: true
+        },
+        'src/apos.js': {
+          file: 'apos-build.js',
+          name: 'apos',
+          src: 'src/apos.js',
+          isEntry: true,
+          css: [
+            'assets/apos.css'
+          ]
+        },
+        'src/src.js': {
+          file: 'src-build.js',
+          name: 'src',
+          src: 'src/src.js',
+          isEntry: true,
+          css: [
+            'assets/src.css'
+          ],
+          assets: [
+            'assets/background.png'
+          ],
+          dynamicImports: [ 'baz.js' ]
+        },
+        'src/article.js': {
+          file: 'article-build.js',
+          name: 'article',
+          src: 'src/article.js',
+          imports: [
+            '_shared-dependency.js'
+          ],
+          css: [
+            'assets/article.css'
+          ],
+          isEntry: true
+        },
+        'src/tools.js': {
+          file: 'tools-build.js',
+          name: 'tools',
+          src: 'src/tools.js',
+          isEntry: true
+        }
+      };
+
+      const entrypoints = [
+        {
+          name: 'src',
+          type: 'index'
+        },
+        {
+          name: 'article',
+          type: 'custom'
+        },
+        {
+          name: 'tools',
+          type: 'custom'
+        },
+        {
+          name: 'apos',
+          type: 'apos'
+        },
+        {
+          name: 'public',
+          type: 'bundled'
+        }
+      ];
+
+      const result = await apos.vite.applyViteManifest(entrypoints, manifest);
+      console.log(require('util').inspect(result, {
+        depth: null,
+        colors: true
+      }));
     });
   });
 
