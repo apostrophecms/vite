@@ -6,12 +6,26 @@ module.exports = {
     aposVite: {}
   },
   init(self) {
+    self.buildSourceFolderName = 'src';
+    self.distFolderName = 'dist';
     self.buildRoot = null;
     self.buildRootSource = null;
+    self.distRoot = null;
     self.buildModules = [];
+    self.buildManifestPath = null;
 
     // Cached metadata for the current run
     self.currentSourceMeta = null;
+    self.entrypointsManifest = [];
+
+    // IMPORTANT: This should not be removed.
+    // Vite depends on both process.env.NODE_ENV and the `mode` config option.
+    // They should be in sync and ALWAYS set. We need to patch the environment
+    // and ensure it's set here.
+    // Read more at https://vite.dev/guide/env-and-mode.html#node-env-and-modes
+    if (!process.env.NODE_ENV) {
+      process.env.NODE_ENV = 'development';
+    }
   },
   handlers(self) {
     return {
@@ -30,28 +44,58 @@ module.exports = {
 
   methods(self) {
     return {
-      async build() {
+      async build(options = {}) {
         await self.cleanUpBuildRoot();
-        self.currentSourceMeta = await self.computeSourceMeta({ copy: true });
-        await self.createImports();
-      },
+        self.currentSourceMeta = await self.computeSourceMeta({ copyFiles: true });
+        const entrypoints = self.apos.asset.getBuildEntrypoints();
+        await self.createImports(entrypoints);
 
+        // Copy the public files so that Vite is not complaining about missing files
+        // while building the project.
+        // TODO: this might not be needed now, `base` property in the Vite config
+        // seems to fix all related issues. Wait until the dev server
+        // and if no problems occur, remove this.
+        try {
+          await fs.copy(
+            path.join(self.apos.asset.getBundleRootDir(), 'modules'),
+            path.join(self.buildRoot, 'modules')
+          );
+        } catch (_) {
+          // do nothing
+        }
+
+        // Always build in production mode.
+        const { build, config } = await self.getViteBuild(options);
+
+        const currentEnv = process.env.NODE_ENV;
+        await build(config);
+        process.env.NODE_ENV = currentEnv;
+
+        const viteManifest = await self.getViteBuildManifest();
+        self.entrypointsManifest = await self.applyManifest(self.entrypointsManifest, viteManifest);
+        return {
+          entrypoints: self.entrypointsManifest,
+          sourceMapsRoot: self.distRoot
+        };
+      },
       // Private methods
       async initWhenReady() {
         self.buildRoot = self.apos.asset.getBuildRootDir();
-        self.buildRootSource = path.join(self.buildRoot, 'src');
+        self.buildRootSource = path.join(self.buildRoot, self.buildSourceFolderName);
         self.buildModules = self.apos.modulesToBeInstantiated();
+        self.distRoot = path.join(self.buildRoot, self.distFolderName);
+        self.buildManifestPath = path.join(self.distRoot, '.vite/manifest.json');
 
         await fs.mkdir(self.buildRootSource, { recursive: true });
       },
       // Compute metadata for the source files of all modules using
       // the core asset handler. Optionally copy the files to the build
       // source and write the metadata to a JSON file.
-      async computeSourceMeta({ copy = false } = {}) {
+      async computeSourceMeta({ copyFiles = false } = {}) {
         const options = {
           modules: self.buildModules
         };
-        if (copy) {
+        if (copyFiles) {
           options.asyncHandler = async (entry) => {
             for (const file of entry.files) {
               await fs.copy(
@@ -61,175 +105,359 @@ module.exports = {
             }
           };
         }
-        const meta = await self.apos.asset.computeSourceMeta(options);
-
-        // Write the metadata to a JSON file, for now.
-        // This might be removed in the future.
-        if (copy) {
-          await fs.writeFile(
-            path.join(self.buildRoot, '.apos.json'),
-            JSON.stringify(meta, null, 2)
-          );
-        }
-
-        return meta;
+        return self.apos.asset.computeSourceMeta(options);
       },
-      // Generate the import files for all entrypoints.
-      async createImports() {
-        const entrypoints = self.apos.asset.getBuildEntrypoints();
+      // Generate the import files for all entrypoints and the pre-build manifest.
+      async createImports(entrypoints) {
         for (const entrypoint of entrypoints) {
-          if (!entrypoint.bundle) {
+          if (entrypoint.condition === 'nomodule') {
+            self.apos.util.warnDev(
+              `The entrypoint "${entrypoint.name}" is marked as "nomodule". ` +
+              'This is not supported by Vite and will be skipped.'
+            );
+            continue;
+          }
+          if (entrypoint.type === 'bundled') {
+            await self.copyExternalBundledAsset(entrypoint);
             continue;
           }
           const output = self.getEntrypointOutput(entrypoint);
-          await self.apos.asset.writeEntrypointFileForUI(output);
+          await self.apos.asset.writeEntrypointFile(output);
+
+          self.entrypointsManifest.push({
+            ...entrypoint,
+            manifest: self.toManifest(entrypoint)
+          });
         }
       },
-      // Generate the import file for an entrypoint.
+      // Copy and concatenate the externally bundled assets.
+      async copyExternalBundledAsset(entrypoint) {
+        if (entrypoint.type !== 'bundled') {
+          return;
+        }
+        const filesByOutput = self.apos.asset.getEntrypointManger(entrypoint)
+          .getSourceFiles(self.currentSourceMeta);
+        const manifestFiles = {};
+        for (const [ output, files ] of Object.entries(filesByOutput)) {
+          if (!files.length) {
+            continue;
+          }
+          const raw = files
+            .map(({ path: filePath }) => fs.readFileSync(filePath, 'utf8'))
+            .join('\n');
+
+          await self.apos.asset.writeEntrypointFile({
+            importFile: path.join(self.buildRoot, `${entrypoint.name}.${output}`),
+            prologue: entrypoint.prologue,
+            raw
+          });
+          manifestFiles[output] = manifestFiles[output] || [];
+          manifestFiles[output].push(`${entrypoint.name}.${output}`);
+        }
+        self.entrypointsManifest.push({
+          ...entrypoint,
+          manifest: self.toManifest(entrypoint, manifestFiles)
+        });
+      },
       getEntrypointOutput(entrypoint) {
-        const meta = self.currentSourceMeta;
-        let indexJs, indexSass, icon, components, tiptap, app;
+        const manager = self.apos.asset.getEntrypointManger(entrypoint);
+        const files = manager.getSourceFiles(
+          self.currentSourceMeta,
+          { composePath: self.composeSourceImportPath }
+        );
+        const output = manager.getOutput(files, { modules: self.buildModules });
+        output.importFile = path.join(self.buildRootSource, `${entrypoint.name}.js`);
 
-        // Generate the index.js and index.scss files for the entrypoint.
-        // `apos` should be `false`.
-        if (entrypoint.index) {
-          const { js, scss } = self.getIndexSourceFiles(entrypoint, meta);
-          indexJs = self.apos.asset.getImportFileOutputForUI(js, {
-            requireDefaultExport: true,
-            invokeApps: true,
-            importSuffix: 'App',
-            enumerateImports: true
-          });
-          indexSass = self.apos.asset.getImportFileOutputForUI(scss, {
-            importName: false
-          });
+        return output;
+      },
+      // Adds `manifest` property (object) to the entrypoint.
+      // See apos.asset.configureBuildModule() for more information.
+      async applyManifest(entrypoints, viteManifest) {
+        const result = [];
+        for (const entrypoint of entrypoints) {
+          const manifest = Object.values(viteManifest)
+            .find((entry) => entry.isEntry && entry.name === entrypoint.name);
+
+          // The entrypoint type `bundled` is not processed by Vite.
+          if (!manifest) {
+            result.push(entrypoint);
+            continue;
+          }
+
+          const convertFn = (ref) => viteManifest[ref].file;
+          const css = [
+            ...manifest.css || [],
+            ...getFiles({
+              manifest: viteManifest,
+              entry: manifest,
+              sources: [ 'imports', 'dynamicImports' ],
+              target: 'css'
+            })
+          ];
+          const assets = [
+            ...manifest.assets || [],
+            ...getFiles({
+              manifest: viteManifest,
+              entry: manifest,
+              sources: [ 'imports', 'dynamicImports' ],
+              target: 'assets'
+            })
+          ];
+          const imports = [
+            ...manifest.imports?.map(convertFn) ?? [],
+            ...getFiles({
+              manifest: viteManifest,
+              entry: manifest,
+              convertFn,
+              sources: [ 'imports' ],
+              target: 'imports'
+            })
+          ];
+          const dynamicImports = [
+            ...manifest.dynamicImports?.map(convertFn) ?? [],
+            ...getFiles({
+              manifest: viteManifest,
+              entry: manifest,
+              convertFn,
+              sources: [ 'dynamicImports' ],
+              target: 'dynamicImports'
+            })
+          ];
+          entrypoint.manifest = {
+            root: self.distFolderName,
+            files: {
+              js: [ manifest.file ],
+              css,
+              assets,
+              imports,
+              dynamicImports
+            },
+            // patch references to point to the real file, and not to a key from the manifest.
+            // Those should be copied to the bundle folder and released. They should be
+            // inserted into the HTML with `rel="modulepreload"` attribute.
+            // imports: manifest.imports?.map((file) => viteManifest[file]?.file).filter(Boolean) ?? [],
+            // imports: manifest.imports?.map((file) => viteManifest[file]?.file).filter(Boolean) ?? [],
+            src: [ manifest.src ],
+            // FIXME: this should be the actual dev server URL, retrieved by a vite instance
+            devServerUrl: null
+          };
+          result.push(entrypoint);
         }
 
-        // Generate the icon, components, tiptap, and app import code for the entrypoint.
-        // `index` should be `false`.
-        if (entrypoint.apos) {
-          icon = self.apos.asset.getAposIconsOutput(self.buildModules);
-          components = self.apos.asset.getImportFileOutputForUI(
-            self.getAposComponentSourceFiles(entrypoint, meta).js,
-            {
-              registerComponents: true
+        function defaultConvertFn(ref) {
+          return ref;
+        }
+        function getFiles({
+          manifest, entry, data, sources, target, convertFn = defaultConvertFn
+        }, acc = [], seen = {}) {
+          if (Array.isArray(data)) {
+            acc.push(...data.map(convertFn));
+          }
+          for (const source of sources) {
+            if (!Array.isArray(entry?.[source])) {
+              continue;
             }
-          );
-          tiptap = self.apos.asset.getImportFileOutputForUI(
-            self.getAposTiptapSourceFiles(entrypoint, meta).js,
-            {
-              registerTiptapExtensions: true
-            }
-          );
-          app = self.apos.asset.getImportFileOutputForUI(
-            self.getAposAppSourceFiles(entrypoint, meta).js,
-            {
-              importSuffix: 'App',
-              enumerateImports: true,
-              invokeApps: true
-            }
-          );
+            entry[source].forEach(ref => {
+              if (seen[`${source}-${ref}`]) {
+                return;
+              }
+              seen[`${source}-${ref}`] = true;
+              manifest[ref] && getFiles({
+                manifest,
+                entry: manifest[ref],
+                data: manifest[ref][target],
+                sources,
+                target,
+                convertFn
+              }, acc, seen);
+            });
+          }
+          return acc;
         }
 
-        // Generate the import file only using the `sources` extra files.
-        if (!entrypoint.useMeta) {
-          const { js, scss } = self.getExtraSourceFiles(entrypoint, meta);
-          indexJs = self.apos.asset.getImportFileOutputForUI(js, {
-            requireDefaultExport: true,
-            invokeApps: true,
-            importSuffix: 'App',
-            enumerateImports: true
-          });
-          indexSass = self.apos.asset.getImportFileOutputForUI(scss, {
-            importName: false
-          });
+        return result;
+      },
+      // Accepts an entrypoint and optional files object and returns a manifest-like object.
+      // This handler is used in the initializing phase of the build process.
+      // In real build situations (production), it will be overridden by the `applyManifest` method.
+      // The only exceptions is the `bundled` entrypoint type, which is not processed by Vite and will
+      // always contain the static files provided by the `files` object.
+      toManifest(entrypoint, files) {
+        if (entrypoint.type === 'bundled') {
+          const result = {
+            root: '',
+            files: {
+              js: files?.js || [],
+              css: files?.css || [],
+              assets: [],
+              imports: [],
+              dynamicImports: []
+            },
+            // Bundled entrypoints are not served by the dev server.
+            src: null,
+            devServerUrl: null
+          };
+          if (result.files.js.length || result.files.css.length) {
+            return result;
+          }
+          return null;
         }
-
         return {
-          importFile: path.join(self.buildRootSource, `${entrypoint.name}.js`),
-          prologue: entrypoint.prologue + '\n',
-          indexJs,
-          indexSass,
-          icon,
-          components,
-          tiptap,
-          app
+          root: self.distFolderName,
+          files: {
+            js: [],
+            css: [],
+            assets: [],
+            imports: [],
+            dynamicImports: []
+          },
+          // Bundled entrypoints are not served by the dev server.
+          src: [ path.join(self.buildSourceFolderName, `${entrypoint.name}.js`) ],
+          // FIXME: this should be the actual dev server URL, retrieved by a vite instance
+          devServerUrl: null
         };
       },
-      // Get source files for entrypoint `index: true`.
-      getIndexSourceFiles(entrypoint, meta) {
-        return self.apos.asset.findSourceFilesForUI(
-          meta,
-          self.composeSourceImportPath,
-          {
-            js: (file, entry) => file === `${entrypoint.name}/index.js`,
-            scss: (file, entry) => file === `${entrypoint.name}/index.scss`
+      // FIXME: this will work only after building. There will be an additional
+      // core system that will copy an preserve the final manifest. Rework it.
+      async getViteBuildManifest() {
+        try {
+          return await fs.readJson(self.buildManifestPath);
+        } catch (e) {
+          return {};
+        }
+      },
+      async getViteBuild(options) {
+        // FIXME make it an import when we become an ES module.
+        const { build } = await import('vite');
+        const config = await self.getViteConfig(options);
+        return {
+          build,
+          config
+        };
+      },
+      async getViteConfig({ mode }) {
+        // FIXME make it an import when we become an ES module.
+        const vue = await import('@vitejs/plugin-vue');
+        const entrypoints = self.entrypointsManifest
+          .filter((entrypoint) => entrypoint.type !== 'bundled')
+          .map((entrypoint) => ([
+            entrypoint.name,
+            path.join(self.buildRootSource, `${entrypoint.name}.js`)
+          ]));
+        const input = Object.fromEntries(entrypoints);
+        // const cssRegex = /\.([s]?[ac]ss)$/;
+
+        /** @type {import('vite').UserConfig} */
+        const config = {
+          // FIXME: passed down from the build module
+          mode: process.env.NODE_ENV === 'production' ? 'production' : 'development',
+          // We might need to utilize the advanced asset settings here.
+          // https://vite.dev/guide/build.html#advanced-base-options
+          // For now we just use the asset base URL.
+          base: self.apos.asset.getAssetBaseUrl(),
+          root: self.buildRoot,
+          appType: 'custom',
+          publicDir: false,
+          // TODO research if separation per namespace (multisite) is needed
+          cacheDir: path.join(self.apos.rootDir, 'data/temp', self.apos.asset.getNamespace(), 'vite'),
+          clearScreen: false,
+          // FIXME: should be provided by the entrypoint configuration, we miss that info.
+          css: {
+            preprocessorOptions: {
+              scss: {
+                api: 'modern-compiler',
+                additionalData: `
+                @use 'sass:math';
+                @import "${self.buildRootSource}/@apostrophecms/ui/apos/scss/mixins/import-all.scss";
+                `
+                // FIXME: still no luck with fixing our /modules/ URLs.
+                // importers: [ {
+                //   // An importer that redirects relative URLs starting with "~" to
+                //   // `node_modules`.
+                //   findFileUrl(url) {
+                //     if (url.startsWith('/modules/')) {
+                //       console.log('FOUND MODULE URL', url);
+                //     }
+                //     return null;
+                //   }
+                // } ]
+              }
+            }
           },
-          {
-            extraSources: entrypoint.sources,
-            ignoreSources: entrypoint.ignoreSources
+          plugins: [
+            myPlugin(), vue.default()
+          ],
+          build: {
+            chunkSizeWarningLimit: 2000,
+            outDir: 'dist',
+            cssCodeSplit: true,
+            manifest: true,
+            sourcemap: true,
+            emptyOutDir: true,
+            assetDir: 'assets',
+            rollupOptions: {
+              input,
+              output: {
+                entryFileNames: '[name]-build.js'
+                // Keep the original build hashed CSS file names.
+                // They will be processed by the post build system where
+                // we provide a build manifest.
+                // assetFileNames: '[name]-build[extname]',
+              }
+            }
           }
-        );
-      },
-      // Get the component source files for entrypoint `apos: true`.
-      getAposComponentSourceFiles(entrypoint, meta) {
-        return self.apos.asset.findSourceFilesForUI(
-          meta,
-          self.composeSourceImportPath,
-          {
-            js: (file, entry) => file.startsWith(`${entrypoint.name}/components/`) && file.endsWith('.vue')
-          },
-          {
-            componentOverrides: true
-          }
-        );
-      },
-      // Get the tiptap source files for entrypoint `apos: true`.
-      getAposTiptapSourceFiles(entrypoint, meta) {
-        return self.apos.asset.findSourceFilesForUI(
-          meta,
-          self.composeSourceImportPath,
-          {
-            js: (file, entry) => file.startsWith(`${entrypoint.name}/tiptap-extensions/`) &&
-              file.endsWith('.js')
-          }
-        );
-      },
-      // Get the `app` source files for entrypoint `apos: true`.
-      getAposAppSourceFiles(entrypoint, meta) {
-        return self.apos.asset.findSourceFilesForUI(
-          meta,
-          self.composeSourceImportPath,
-          {
-            js: (file, entry) => file.startsWith(`${entrypoint.name}/apps/`) && file.endsWith('.js')
-          }
-        );
-      },
-      // Get extra source files for the entrypoint when `useMeta: false`.
-      getExtraSourceFiles(entrypoint, meta) {
-        const extraSources = entrypoint.sources;
-        if (!extraSources.js.length && !extraSources.scss.length) {
+        };
+
+        return config;
+
+        function myPlugin() {
           return {
-            js: [],
-            scss: []
+            name: 'vite-plugin-apostrophe',
+            async resolveId(source, importer, options) {
+              if (!source.startsWith('Modules/')) {
+                return null;
+              }
+              const chunks = source.replace('Modules/', '').split('/');
+              let moduleName = chunks.shift();
+              if (moduleName.startsWith('@')) {
+                moduleName += '/' + chunks.shift();
+              }
+              // const transformedPath = path.join(self.buildRootSource, moduleName, 'apos', ...chunks);
+              const resolved = await this.resolve(
+                path.join(self.buildRootSource, moduleName, 'apos', ...chunks),
+                importer,
+                options
+              );
+              if (!resolved) {
+                // FIXME - log system
+                console.error('APOS MODULE RESOLVE FAILED!',
+                  'FROM: ' + source,
+                  'TO' + path.join(self.buildRootSource, moduleName, 'apos', ...chunks)
+                );
+              }
+              return resolved;
+            }
+            // Transform `/modules/` URLs in CSS files to the correct asset URL.
+            // Here for reference for now, the `base` property in the Vite config
+            // seems to fix all related issues. We only have to offer the `/modules/`
+            // folder in the build root. Vite is rewriting the URLs correctly and pointing
+            // them to `baseAssetUrl()/modules/` which is the correct behavior.
+            // async transform(src, id) {
+            //   if (cssRegex.test(id.split('?')[0]) && src.includes('/modules/')) {
+            //     return {
+            //       code: self.apos.asset.filterCss(src, {
+            //         // FIXME: this should be another asset URL - here we need
+            //         // the ACTUAL apos URL and not the dev server one.
+            //         // We need to have a getAssetBaseUrlPath method and use
+            //         // the apos baseUrl to build the url here.
+            //         modulesPrefix: `${self.apos.asset.getAssetBaseUrl()}/modules`
+            //       }),
+            //       map: null
+            //     };
+            //   }
+            // }
           };
         }
-        return self.apos.asset.findSourceFilesForUI(
-          meta,
-          self.composeSourceImportPath,
-          {
-            js: null,
-            scss: null
-          },
-          {
-            extraSources,
-            skipPredicates: true
-          }
-        );
-      },
-      // The import path composer for the source files.
-      composeSourceImportPath(file, entry) {
-        return `./${entry.name}/${file}`;
       },
       async cleanUpBuildRoot() {
         await fs.remove(self.buildRoot);
