@@ -52,7 +52,9 @@ module.exports = {
 
         // Copy the public files so that Vite is not complaining about missing files
         // while building the project.
-        // FIXME: move to `preBuild` method, called by the asset module.
+        // TODO: this might not be needed now, `base` property in the Vite config
+        // seems to fix all related issues. Wait until the dev server
+        // and if no problems occur, remove this.
         try {
           await fs.copy(
             path.join(self.apos.asset.getBundleRootDir(), 'modules'),
@@ -182,6 +184,7 @@ module.exports = {
             continue;
           }
 
+          const convertFn = (ref) => viteManifest[ref].file;
           const css = [
             ...manifest.css || [],
             ...getFiles({
@@ -200,23 +203,22 @@ module.exports = {
               target: 'assets'
             })
           ];
-          const jsConvertFn = (ref) => viteManifest[ref].file;
           const imports = [
-            ...manifest.imports?.map(jsConvertFn) ?? [],
+            ...manifest.imports?.map(convertFn) ?? [],
             ...getFiles({
               manifest: viteManifest,
               entry: manifest,
-              convertFn: jsConvertFn,
+              convertFn,
               sources: [ 'imports' ],
               target: 'imports'
             })
           ];
           const dynamicImports = [
-            ...manifest.dynamicImports?.map(jsConvertFn) ?? [],
+            ...manifest.dynamicImports?.map(convertFn) ?? [],
             ...getFiles({
               manifest: viteManifest,
               entry: manifest,
-              convertFn: jsConvertFn,
+              convertFn,
               sources: [ 'dynamicImports' ],
               target: 'dynamicImports'
             })
@@ -343,12 +345,16 @@ module.exports = {
             path.join(self.buildRootSource, `${entrypoint.name}.js`)
           ]));
         const input = Object.fromEntries(entrypoints);
-        const cssRegex = /\.([s]?[ac]ss)$/;
+        // const cssRegex = /\.([s]?[ac]ss)$/;
 
         /** @type {import('vite').UserConfig} */
         const config = {
           // FIXME: passed down from the build module
           mode: process.env.NODE_ENV === 'production' ? 'production' : 'development',
+          // We might need to utilize the advanced asset settings here.
+          // https://vite.dev/guide/build.html#advanced-base-options
+          // For now we just use the asset base URL.
+          base: self.apos.asset.getAssetBaseUrl(),
           root: self.buildRoot,
           appType: 'custom',
           publicDir: false,
@@ -430,22 +436,26 @@ module.exports = {
                 );
               }
               return resolved;
-            },
-            // Transform `/modules/` URLs in CSS files to the correct asset URL.
-            async transform(src, id) {
-              if (cssRegex.test(id.split('?')[0]) && src.includes('/modules/')) {
-                return {
-                  code: self.apos.asset.filterCss(src, {
-                    // FIXME: this should be another asset URL - here we need
-                    // the ACTUAL apos URL and not the dev server one.
-                    // We need to have a getAssetBaseUrlPath method and use
-                    // the apos baseUrl to build the url here.
-                    modulesPrefix: `${self.apos.asset.getAssetBaseUrl()}/modules`
-                  }),
-                  map: null
-                };
-              }
             }
+            // Transform `/modules/` URLs in CSS files to the correct asset URL.
+            // Here for reference for now, the `base` property in the Vite config
+            // seems to fix all related issues. We only have to offer the `/modules/`
+            // folder in the build root. Vite is rewriting the URLs correctly and pointing
+            // them to `baseAssetUrl()/modules/` which is the correct behavior.
+            // async transform(src, id) {
+            //   if (cssRegex.test(id.split('?')[0]) && src.includes('/modules/')) {
+            //     return {
+            //       code: self.apos.asset.filterCss(src, {
+            //         // FIXME: this should be another asset URL - here we need
+            //         // the ACTUAL apos URL and not the dev server one.
+            //         // We need to have a getAssetBaseUrlPath method and use
+            //         // the apos baseUrl to build the url here.
+            //         modulesPrefix: `${self.apos.asset.getAssetBaseUrl()}/modules`
+            //       }),
+            //       map: null
+            //     };
+            //   }
+            // }
           };
         }
       },
