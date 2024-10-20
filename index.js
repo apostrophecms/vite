@@ -5,7 +5,7 @@ module.exports = {
   i18n: {
     aposVite: {}
   },
-  init(self) {
+  async init(self) {
     self.buildSourceFolderName = 'src';
     self.distFolderName = 'dist';
     self.buildRoot = null;
@@ -18,6 +18,11 @@ module.exports = {
     self.currentSourceMeta = null;
     self.entrypointsManifest = [];
 
+    // Populated after a build has been triggered
+    self.buildOptions = null;
+    self.viteDevMiddleware = null;
+    self.shouldCreateDevServer = false;
+
     // IMPORTANT: This should not be removed.
     // Vite depends on both process.env.NODE_ENV and the `mode` config option.
     // They should be in sync and ALWAYS set. We need to patch the environment
@@ -27,6 +32,7 @@ module.exports = {
       process.env.NODE_ENV = 'development';
     }
   },
+
   handlers(self) {
     return {
       '@apostrophecms/asset:afterInit': {
@@ -39,12 +45,84 @@ module.exports = {
           await self.initWhenReady();
         }
       }
+      // '@apostrophecms/express:afterListen': {
+      //   async viteDevServer() {
+      //     if (self.shouldCreateDevServer) {
+      //       await self.createViteInstance(self.buildOptions);
+      //     }
+      //   }
+      // }
     };
   },
+
+  // middleware(self) {
+  //   if (process.env.NODE_ENV === 'production') {
+  //     return {};
+  //   }
+  //   return {
+  //     viteDevServer: {
+  //       before: '@apostrophecms/express',
+  //       url: '/__vite',
+  //       middleware: [
+  //         async (req, res, next) => {
+  //           if (!self.shouldCreateDevServer) {
+  //             return next();
+  //           }
+  //           self.viteDevMiddleware(req, res);
+  //         },
+  //         async (req, res, next) => {
+  //           if (!self.shouldCreateDevServer) {
+  //             return next();
+  //           }
+  //           res.status(404).send('Not found');
+  //         }
+  //       ]
+  //     }
+  //   };
+  // },
 
   methods(self) {
     return {
       async build(options = {}) {
+        self.buildOptions = options;
+        await self.buildBefore(options);
+
+        const { build, config } = await self.getViteBuild(options);
+        await build(config);
+
+        const viteManifest = await self.getViteBuildManifest();
+        self.entrypointsManifest = await self.applyManifest(self.entrypointsManifest, viteManifest);
+        return {
+          entrypoints: self.entrypointsManifest,
+          sourceMapsRoot: self.distRoot
+        };
+      },
+      // async startDevServer(options) {
+      //   self.buildOptions = options;
+      //   self.shouldCreateDevServer = true;
+      //   await self.buildBefore(options);
+
+      //   const devServerUrl = self.getDevServerUrl();
+      //   self.entrypointsManifest.unshift({
+      //     name: 'vite',
+      //     type: 'bundled',
+      //     scenes: [ 'public' ],
+      //     outputs: [ 'js' ],
+      //     manifest: {
+      //       root: '',
+      //       files: {},
+      //       src: {
+      //         js: [ '@vite/client' ]
+      //       },
+      //       devServerUrl
+      //     }
+      //   });
+      //   return {
+      //     entrypoints: self.entrypointsManifest,
+      //     devServerUrl
+      //   };
+      // },
+      async buildBefore(options = {}) {
         await self.cleanUpBuildRoot();
         self.currentSourceMeta = await self.computeSourceMeta({ copyFiles: true });
         const entrypoints = self.apos.asset.getBuildEntrypoints();
@@ -52,9 +130,6 @@ module.exports = {
 
         // Copy the public files so that Vite is not complaining about missing files
         // while building the project.
-        // TODO: this might not be needed now, `base` property in the Vite config
-        // seems to fix all related issues. Wait until the dev server
-        // and if no problems occur, remove this.
         try {
           await fs.copy(
             path.join(self.apos.asset.getBundleRootDir(), 'modules'),
@@ -63,20 +138,12 @@ module.exports = {
         } catch (_) {
           // do nothing
         }
-
-        // Always build in production mode.
-        const { build, config } = await self.getViteBuild(options);
-
-        const currentEnv = process.env.NODE_ENV;
-        await build(config);
-        process.env.NODE_ENV = currentEnv;
-
-        const viteManifest = await self.getViteBuildManifest();
-        self.entrypointsManifest = await self.applyManifest(self.entrypointsManifest, viteManifest);
-        return {
-          entrypoints: self.entrypointsManifest,
-          sourceMapsRoot: self.distRoot
-        };
+      },
+      getDevServerUrl() {
+        if (!self.buildOptions.devServer) {
+          return null;
+        }
+        return self.apos.asset.getBaseDevSiteUrl() + '/__vite';
       },
       // Private methods
       async initWhenReady() {
@@ -88,6 +155,38 @@ module.exports = {
 
         await fs.mkdir(self.buildRootSource, { recursive: true });
       },
+      // async createViteInstance({ hmr }) {
+      //   const vite = await import('vite');
+      //   const viteConfig = await self.getViteConfig({ devServer: true });
+      //   // FIXME use Vite's merge here.
+      //   const config = {
+      //     ...viteConfig,
+      //     base: '/__vite',
+      //     server: {
+      //       ...viteConfig.server,
+      //       middlewareMode: true
+      //     }
+      //   };
+
+      //   if (hmr) {
+      //     config.server = {
+      //       ...config.server,
+      //       hmr: {
+      //         server: self.apos.modules['@apostrophecms/express'].server
+      //       }
+      //     };
+      //   } else {
+      //     // Disable HMR
+      //     config.server = {
+      //       ...config.server,
+      //       hmr: false,
+      //       watch: null
+      //     };
+      //   }
+
+      //   const instance = await vite.createServer(config);
+      //   self.viteDevMiddleware = instance.middlewares;
+      // },
       // Compute metadata for the source files of all modules using
       // the core asset handler. Optionally copy the files to the build
       // source and write the metadata to a JSON file.
@@ -172,6 +271,7 @@ module.exports = {
       },
       // Adds `manifest` property (object) to the entrypoint.
       // See apos.asset.configureBuildModule() for more information.
+      // Called only when a rollup build is triggered.
       async applyManifest(entrypoints, viteManifest) {
         const result = [];
         for (const entrypoint of entrypoints) {
@@ -232,14 +332,10 @@ module.exports = {
               imports,
               dynamicImports
             },
-            // patch references to point to the real file, and not to a key from the manifest.
-            // Those should be copied to the bundle folder and released. They should be
-            // inserted into the HTML with `rel="modulepreload"` attribute.
-            // imports: manifest.imports?.map((file) => viteManifest[file]?.file).filter(Boolean) ?? [],
-            // imports: manifest.imports?.map((file) => viteManifest[file]?.file).filter(Boolean) ?? [],
-            src: [ manifest.src ],
-            // FIXME: this should be the actual dev server URL, retrieved by a vite instance
-            devServerUrl: null
+            src: {
+              js: [ manifest.src ]
+            },
+            devServerUrl: self.getDevServerUrl()
           };
           result.push(entrypoint);
         }
@@ -282,6 +378,7 @@ module.exports = {
       // In real build situations (production), it will be overridden by the `applyManifest` method.
       // The only exceptions is the `bundled` entrypoint type, which is not processed by Vite and will
       // always contain the static files provided by the `files` object.
+      // Called always when a build is triggered.
       toManifest(entrypoint, files) {
         if (entrypoint.type === 'bundled') {
           const result = {
@@ -311,10 +408,12 @@ module.exports = {
             imports: [],
             dynamicImports: []
           },
-          // Bundled entrypoints are not served by the dev server.
-          src: [ path.join(self.buildSourceFolderName, `${entrypoint.name}.js`) ],
-          // FIXME: this should be the actual dev server URL, retrieved by a vite instance
-          devServerUrl: null
+          // This can be extended, for now we only support JS entries.
+          // It's used to inject the entrypoint into the HTML.
+          src: {
+            js: [ path.join(self.buildSourceFolderName, `${entrypoint.name}.js`) ]
+          },
+          devServerUrl: self.getDevServerUrl()
         };
       },
       // FIXME: this will work only after building. There will be an additional
@@ -335,7 +434,8 @@ module.exports = {
           config
         };
       },
-      async getViteConfig({ mode }) {
+      // FIXME: This should become a vite plugin.
+      async getViteConfig(options = {}) {
         // FIXME make it an import when we become an ES module.
         const vue = await import('@vitejs/plugin-vue');
         const entrypoints = self.entrypointsManifest
@@ -353,8 +453,8 @@ module.exports = {
           mode: process.env.NODE_ENV === 'production' ? 'production' : 'development',
           // We might need to utilize the advanced asset settings here.
           // https://vite.dev/guide/build.html#advanced-base-options
-          // For now we just use the asset base URL.
-          base: self.apos.asset.getAssetBaseUrl(),
+          // For now we just use the (real) asset base URL.
+          base: self.apos.asset.getAssetBaseSystemUrl(),
           root: self.buildRoot,
           appType: 'custom',
           publicDir: false,
