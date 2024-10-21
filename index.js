@@ -11,7 +11,6 @@ module.exports = {
     self.buildRoot = null;
     self.buildRootSource = null;
     self.distRoot = null;
-    self.buildModules = [];
     self.buildManifestPath = null;
 
     // Cached metadata for the current run
@@ -39,47 +38,57 @@ module.exports = {
         async registerExternalBuild() {
           self.apos.asset.configureBuildModule(self, {
             alias: 'vite',
-            hasDevServer: true,
-            hasHMR: true
+            devServer: true,
+            hmr: true
           });
           await self.initWhenReady();
         }
+      },
+      '@apostrophecms/express:afterListen': {
+        async viteDevServer() {
+          if (self.shouldCreateDevServer) {
+            await self.createViteInstance(self.buildOptions);
+          }
+        }
       }
-      // '@apostrophecms/express:afterListen': {
-      //   async viteDevServer() {
-      //     if (self.shouldCreateDevServer) {
-      //       await self.createViteInstance(self.buildOptions);
-      //     }
-      //   }
-      // }
     };
   },
 
-  // middleware(self) {
-  //   if (process.env.NODE_ENV === 'production') {
-  //     return {};
-  //   }
-  //   return {
-  //     viteDevServer: {
-  //       before: '@apostrophecms/express',
-  //       url: '/__vite',
-  //       middleware: [
-  //         async (req, res, next) => {
-  //           if (!self.shouldCreateDevServer) {
-  //             return next();
-  //           }
-  //           self.viteDevMiddleware(req, res);
-  //         },
-  //         async (req, res, next) => {
-  //           if (!self.shouldCreateDevServer) {
-  //             return next();
-  //           }
-  //           res.status(404).send('Not found');
-  //         }
-  //       ]
-  //     }
-  //   };
-  // },
+  middleware(self) {
+    if (process.env.NODE_ENV === 'production') {
+      return {};
+    }
+    return {
+      viteDevServer: {
+        before: '@apostrophecms/express',
+        url: '/__vite',
+        middleware: async (req, res, next) => {
+          if (!self.shouldCreateDevServer) {
+            return next();
+          }
+          // Do not provide `next` to the middleware, we want to stop the chain here
+          // if the request is handled by Vite. It provides its own 404 handler.
+          self.viteDevMiddleware(req, res);
+        }
+        // [
+        // async (req, res, next) => {
+        //   if (!self.shouldCreateDevServer) {
+        //     return next();
+        //   }
+        //   // Do not provide `next` to the middleware, we want to stop the chain here
+        //   // if the request is handled by Vite. It provides its own 404 handler.
+        //   self.viteDevMiddleware(req, res);
+        // }
+        // async (req, res, next) => {
+        //   if (!self.shouldCreateDevServer) {
+        //     return next();
+        //   }
+        //   res.status(404).send('Not found');
+        // }
+        // ]
+      }
+    };
+  },
 
   methods(self) {
     return {
@@ -97,31 +106,31 @@ module.exports = {
           sourceMapsRoot: self.distRoot
         };
       },
-      // async startDevServer(options) {
-      //   self.buildOptions = options;
-      //   self.shouldCreateDevServer = true;
-      //   await self.buildBefore(options);
+      async startDevServer(options) {
+        self.buildOptions = options;
+        self.shouldCreateDevServer = true;
+        await self.buildBefore(options);
 
-      //   const devServerUrl = self.getDevServerUrl();
-      //   self.entrypointsManifest.unshift({
-      //     name: 'vite',
-      //     type: 'bundled',
-      //     scenes: [ 'public' ],
-      //     outputs: [ 'js' ],
-      //     manifest: {
-      //       root: '',
-      //       files: {},
-      //       src: {
-      //         js: [ '@vite/client' ]
-      //       },
-      //       devServerUrl
-      //     }
-      //   });
-      //   return {
-      //     entrypoints: self.entrypointsManifest,
-      //     devServerUrl
-      //   };
-      // },
+        const devServerUrl = self.getDevServerUrl();
+        self.entrypointsManifest.unshift({
+          name: 'vite',
+          type: 'bundled',
+          scenes: [ 'public' ],
+          outputs: [ 'js' ],
+          manifest: {
+            root: '',
+            files: {},
+            src: {
+              js: [ '@vite/client' ]
+            },
+            devServerUrl
+          }
+        });
+        return {
+          entrypoints: self.entrypointsManifest,
+          devServerUrl
+        };
+      },
       async buildBefore(options = {}) {
         await self.cleanUpBuildRoot();
         self.currentSourceMeta = await self.computeSourceMeta({ copyFiles: true });
@@ -149,50 +158,60 @@ module.exports = {
       async initWhenReady() {
         self.buildRoot = self.apos.asset.getBuildRootDir();
         self.buildRootSource = path.join(self.buildRoot, self.buildSourceFolderName);
-        self.buildModules = self.apos.modulesToBeInstantiated();
         self.distRoot = path.join(self.buildRoot, self.distFolderName);
         self.buildManifestPath = path.join(self.distRoot, '.vite/manifest.json');
 
         await fs.mkdir(self.buildRootSource, { recursive: true });
       },
-      // async createViteInstance({ hmr }) {
-      //   const vite = await import('vite');
-      //   const viteConfig = await self.getViteConfig({ devServer: true });
-      //   // FIXME use Vite's merge here.
-      //   const config = {
-      //     ...viteConfig,
-      //     base: '/__vite',
-      //     server: {
-      //       ...viteConfig.server,
-      //       middlewareMode: true
-      //     }
-      //   };
+      // Create a vite instance. This can be called only when we have
+      // a running express server. See handlers `afterListen`.
+      async createViteInstance({ hmr }) {
+        const vite = await import('vite');
+        const viteConfig = await self.getViteConfig({ devServer: true });
+        // FIXME use Vite's merge here.
+        // Provide the parent server. Read the note in the URL below.
+        // https://vite.dev/guide/api-javascript.html#createserver
+        const config = {
+          ...viteConfig,
+          base: '/__vite',
+          server: {
+            ...viteConfig.server,
+            middlewareMode: {
+              server: self.apos.app
+            }
+          }
+        };
 
-      //   if (hmr) {
-      //     config.server = {
-      //       ...config.server,
-      //       hmr: {
-      //         server: self.apos.modules['@apostrophecms/express'].server
-      //       }
-      //     };
-      //   } else {
-      //     // Disable HMR
-      //     config.server = {
-      //       ...config.server,
-      //       hmr: false,
-      //       watch: null
-      //     };
-      //   }
+        if (hmr) {
+          // Attach the HMR server to the apos express server
+          // https://github.com/vitejs/vite/issues/15297#issuecomment-1849135695
+          config.server = {
+            ...config.server,
+            hmr: {
+              server: self.apos.modules['@apostrophecms/express'].server
+            }
+          };
+        } else {
+          // Disable HMR
+          config.server = {
+            ...config.server,
+            hmr: false,
+            watch: null
+          };
+        }
 
-      //   const instance = await vite.createServer(config);
-      //   self.viteDevMiddleware = instance.middlewares;
-      // },
+        const instance = await vite.createServer({
+          ...config,
+          configFile: false
+        });
+        self.viteDevMiddleware = instance.middlewares;
+      },
       // Compute metadata for the source files of all modules using
       // the core asset handler. Optionally copy the files to the build
       // source and write the metadata to a JSON file.
       async computeSourceMeta({ copyFiles = false } = {}) {
         const options = {
-          modules: self.buildModules
+          modules: self.apos.asset.getRegisteredModules()
         };
         if (copyFiles) {
           options.asyncHandler = async (entry) => {
@@ -264,7 +283,7 @@ module.exports = {
           self.currentSourceMeta,
           { composePath: self.composeSourceImportPath }
         );
-        const output = manager.getOutput(files, { modules: self.buildModules });
+        const output = manager.getOutput(files, { modules: self.apos.asset.getRegisteredModules() });
         output.importFile = path.join(self.buildRootSource, `${entrypoint.name}.js`);
 
         return output;
