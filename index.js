@@ -22,6 +22,16 @@ module.exports = {
     self.viteDevMiddleware = null;
     self.shouldCreateDevServer = false;
 
+    // Populated when a watch is triggered
+    // all UI folders -> index
+    self.currentSourceUiIndex = {};
+    // all path -> index
+    self.currentSourceFsIndex = {};
+    // relative/path/file -> [ index1, index2 ]
+    self.currentSourceRelIndex = new Map();
+    // Modules/moduleName/ -> index
+    self.currentSourceAliasIndex = {};
+
     // IMPORTANT: This should not be removed.
     // Vite depends on both process.env.NODE_ENV and the `mode` config option.
     // They should be in sync and ALWAYS set. We need to patch the environment
@@ -45,7 +55,7 @@ module.exports = {
         }
       },
       '@apostrophecms/express:afterListen': {
-        async viteDevServer() {
+        async prepareViteDevServer() {
           if (self.shouldCreateDevServer) {
             await self.createViteInstance(self.buildOptions);
           }
@@ -70,22 +80,6 @@ module.exports = {
           // if the request is handled by Vite. It provides its own 404 handler.
           self.viteDevMiddleware(req, res);
         }
-        // [
-        // async (req, res, next) => {
-        //   if (!self.shouldCreateDevServer) {
-        //     return next();
-        //   }
-        //   // Do not provide `next` to the middleware, we want to stop the chain here
-        //   // if the request is handled by Vite. It provides its own 404 handler.
-        //   self.viteDevMiddleware(req, res);
-        // }
-        // async (req, res, next) => {
-        //   if (!self.shouldCreateDevServer) {
-        //     return next();
-        //   }
-        //   res.status(404).send('Not found');
-        // }
-        // ]
       }
     };
   },
@@ -131,9 +125,141 @@ module.exports = {
           devServerUrl
         };
       },
+      // Initialize the watcher for triggering vite HMR via file
+      // copy to the build source.
+      // `chokidar` is a chockidar `FSWatcher` or compatible instance.
+      async watch(chokidar) {
+        self.buildWatchIndex();
+        chokidar
+          .on('add', (p) => self.onSourceAdd(p, false))
+          .on('addDir', (p) => self.onSourceAdd(p, true))
+          .on('change', self.onSourceChange)
+          .on('unlink', (p) => self.onSourceUnlink(p, false))
+          .on('unlinkDir', (p) => self.onSourceUnlink(p, true));
+      },
+      buildWatchIndex() {
+        self.currentSourceMeta.forEach((entry, index) => {
+          self.currentSourceUiIndex[entry.dirname] = index;
+          entry.files.forEach((file) => {
+            self.currentSourceFsIndex[path.join(entry.dirname, file)] = index;
+            self.currentSourceRelIndex.set(
+              file,
+              (self.currentSourceRelIndex.get(file) ?? new Set())
+                .add(index)
+            );
+          });
+          self.currentSourceAliasIndex[entry.importAlias] = index;
+        });
+      },
+      onSourceAdd(filePath, isDir) {
+        if (isDir) {
+          return;
+        }
+        const p = path.join(self.apos.rootDir, filePath);
+        const key = Object.keys(self.currentSourceUiIndex)
+          .filter((dir) => p.startsWith(dir))
+          .reduce((acc, dir) => {
+            // Choose the best match - the longest string wins
+            if (dir.length > acc.length) {
+              return dir;
+            }
+            return acc;
+          }, '');
+        const index = self.currentSourceUiIndex[key];
+        const entry = self.currentSourceMeta[index];
+
+        if (!entry) {
+          return;
+        }
+        const file = p.replace(entry.dirname + '/', '');
+        entry.files.push(file);
+        entry.files = Array.from(new Set(entry.files));
+
+        // Add the new file to the absolute and relative index
+        self.currentSourceRelIndex.set(
+          file,
+          (self.currentSourceRelIndex.get(file) ?? new Set())
+            .add(index)
+        );
+        self.currentSourceFsIndex[p] = index;
+
+        // The actual trigger.
+        self.onSourceChange(filePath);
+
+        // TODO: we can do in-process recalculations to regenerate the import files
+        // when required in the future. It would require a more complex detection
+        // per "current entrypoints" similar to what we are doing in the build process
+        // when we generate the import files.
+      },
+      onSourceChange(filePath, silent = false) {
+        const p = path.join(self.apos.rootDir, filePath);
+        const source = self.currentSourceMeta[self.currentSourceFsIndex[p]]
+          ?.files.find((file) => p.endsWith(file));
+        if (!source) {
+          return;
+        }
+        self.currentSourceRelIndex.get(source)?.forEach((index) => {
+          try {
+            const target = path.join(self.buildRootSource, self.currentSourceMeta[index].name, source);
+            fs.mkdirpSync(path.dirname(target));
+            fs.copyFileSync(
+              path.join(self.currentSourceMeta[index].dirname, source),
+              target
+            );
+          } catch (e) {
+            if (silent) {
+              return;
+            }
+            self.apos.util.error(
+              `Failed to copy file "${source}" from module ${self.currentSourceMeta[index]?.name}`,
+              e.message
+            );
+          }
+        });
+
+      },
+      onSourceUnlink(filePath, isDir) {
+        if (isDir) {
+          return;
+        }
+        const p = path.join(self.apos.rootDir, filePath);
+        const source = self.currentSourceMeta[self.currentSourceFsIndex[p]]
+          ?.files.find((file) => p.endsWith(file));
+        if (!source) {
+          return;
+        }
+        const index = self.currentSourceFsIndex[p];
+
+        // 1. Delete the source file from the build source
+        fs.unlinkSync(
+          path.join(
+            self.buildRootSource,
+            self.currentSourceMeta[index].name,
+            source
+          )
+        );
+        self.currentSourceMeta[index].files =
+          self.currentSourceMeta[index].files
+            .filter((file) => file !== source);
+
+        // 2. Remove the file reference from the indexes
+        self.currentSourceRelIndex.get(source)?.delete(index);
+        delete self.currentSourceFsIndex[p];
+
+        // 3. Trigger a silent change, so that if there is an override/parent file
+        // it will be copied to the build source.
+        self.onSourceChange(filePath, true);
+
+        // TODO: we can do in-process recalculations to regenerate the import files
+        // when required in the future. It would require a more complex detection
+        // per "current entrypoints" similar to what we are doing in the build process
+        // when we generate the import files.
+      },
       async buildBefore(options = {}) {
         await self.cleanUpBuildRoot();
-        self.currentSourceMeta = await self.computeSourceMeta({ copyFiles: true });
+        self.currentSourceMeta = await self.computeSourceMeta({
+          copyFiles: true
+        });
         const entrypoints = self.apos.asset.getBuildEntrypoints();
         await self.createImports(entrypoints);
 
@@ -211,7 +337,8 @@ module.exports = {
       // source and write the metadata to a JSON file.
       async computeSourceMeta({ copyFiles = false } = {}) {
         const options = {
-          modules: self.apos.asset.getRegisteredModules()
+          modules: self.apos.asset.getRegisteredModules(),
+          stats: true
         };
         if (copyFiles) {
           options.asyncHandler = async (entry) => {
@@ -223,7 +350,10 @@ module.exports = {
             }
           };
         }
-        return self.apos.asset.computeSourceMeta(options);
+        // Do not bother with modules that are only "virtual" and do not have
+        // any files to process.
+        return (await self.apos.asset.computeSourceMeta(options))
+          .filter((entry) => entry.exists);
       },
       // Generate the import files for all entrypoints and the pre-build manifest.
       async createImports(entrypoints) {
@@ -239,7 +369,7 @@ module.exports = {
             await self.copyExternalBundledAsset(entrypoint);
             continue;
           }
-          const output = self.getEntrypointOutput(entrypoint);
+          const output = await self.getEntrypointOutput(entrypoint);
           await self.apos.asset.writeEntrypointFile(output);
 
           self.entrypointsManifest.push({
@@ -277,13 +407,13 @@ module.exports = {
           manifest: self.toManifest(entrypoint, manifestFiles)
         });
       },
-      getEntrypointOutput(entrypoint) {
+      async getEntrypointOutput(entrypoint) {
         const manager = self.apos.asset.getEntrypointManger(entrypoint);
         const files = manager.getSourceFiles(
           self.currentSourceMeta,
           { composePath: self.composeSourceImportPath }
         );
-        const output = manager.getOutput(files, { modules: self.apos.asset.getRegisteredModules() });
+        const output = await manager.getOutput(files, { modules: self.apos.asset.getRegisteredModules() });
         output.importFile = path.join(self.buildRootSource, `${entrypoint.name}.js`);
 
         return output;
@@ -511,7 +641,7 @@ module.exports = {
             outDir: 'dist',
             cssCodeSplit: true,
             manifest: true,
-            sourcemap: true,
+            sourcemap: !options.devServer,
             emptyOutDir: true,
             assetDir: 'assets',
             rollupOptions: {
