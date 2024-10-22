@@ -17,7 +17,7 @@
   "author": "Apostrophe Technologies",
   "license": "MIT",
   "devDependencies": {
-    "apostrophe": "github:apostrophecms/apostrophe#PRO-6642-link-source",
+    "apostrophe": "github:apostrophecms/apostrophe#PRO-6645-dev-server",
     "eslint": "^8.55.0",
     "eslint-config-apostrophe": "^4.2.0",
     "eslint-config-standard": "^17.1.0",
@@ -27,6 +27,8 @@
     "mocha": "^10.2.0"
   },
   "dependencies": {
-    "fs-extra": "^7.0.1"
+    "@vitejs/plugin-vue": "^5.1.4",
+    "fs-extra": "^7.0.1",
+    "vite": "^5.4.8"
   }
 }

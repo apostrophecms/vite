@@ -13,7 +13,8 @@ const getAppConfig = (modules = {}) => {
     '@apostrophecms/vite': {
       options: {
         alias: 'vite'
-      }
+      },
+      before: '@apostrophecms/asset'
     },
     ...modules
   };
@@ -24,7 +25,7 @@ describe('@apostrophecms/vite', function () {
 
   this.timeout(t.timeout);
 
-  after(function () {
+  after(async function () {
     return t.destroy(apos);
   });
 
@@ -48,7 +49,207 @@ describe('@apostrophecms/vite', function () {
     });
   });
 
-  describe('build', function () {
+  describe('specs', function () {
+    before(async function () {
+      await t.destroy(apos);
+      apos = await t.create({
+        root: module,
+        testModule: true,
+        autoBuild: false,
+        modules: getAppConfig()
+      });
+    });
+    it('should apply manifest', async function () {
+      const manifest = {
+        // Circular dependency with `bar.js`
+        '_shared-dependency.js': {
+          file: 'assets/shared-dependency.js',
+          name: 'shared-dependency',
+          css: [
+            'assets/shared-dependency.css'
+          ],
+          dynamicImports: [ 'bar.js' ]
+        },
+        'modules/asset/images/background.png': {
+          file: 'assets/background.png',
+          src: 'modules/asset/images/background.png'
+        },
+        'baz.js': {
+          file: 'assets/baz.js',
+          name: 'baz',
+          src: 'baz.js',
+          imports: [
+            '_shared-dependency.js'
+          ],
+          css: [
+            'assets/baz.css'
+          ],
+          isDynamicEntry: true
+        },
+        // Circular dependency with `shared-dependency.js`
+        'bar.js': {
+          file: 'assets/bar.js',
+          name: 'bar',
+          src: 'bar.js',
+          imports: [
+            '_shared-dependency.js'
+          ],
+          css: [
+            'assets/bar.css'
+          ],
+          isDynamicEntry: true
+        },
+        'src/apos.js': {
+          file: 'apos-build.js',
+          name: 'apos',
+          src: 'src/apos.js',
+          isEntry: true,
+          css: [
+            'assets/apos.css'
+          ]
+        },
+        'src/src.js': {
+          file: 'src-build.js',
+          name: 'src',
+          src: 'src/src.js',
+          isEntry: true,
+          css: [
+            'assets/src.css'
+          ],
+          assets: [
+            'assets/background.png'
+          ],
+          dynamicImports: [ 'baz.js' ]
+        },
+        'src/article.js': {
+          file: 'article-build.js',
+          name: 'article',
+          src: 'src/article.js',
+          imports: [
+            '_shared-dependency.js'
+          ],
+          css: [
+            'assets/article.css'
+          ],
+          isEntry: true
+        },
+        'src/tools.js': {
+          file: 'tools-build.js',
+          name: 'tools',
+          src: 'src/tools.js',
+          isEntry: true
+        }
+      };
+
+      const entrypoints = [
+        {
+          name: 'src',
+          type: 'index'
+        },
+        {
+          name: 'article',
+          type: 'custom'
+        },
+        {
+          name: 'tools',
+          type: 'custom'
+        },
+        {
+          name: 'apos',
+          type: 'apos'
+        },
+        {
+          name: 'public',
+          type: 'bundled'
+        }
+      ];
+
+      const actual = await apos.vite.applyManifest(entrypoints, manifest);
+      const expected = [
+        {
+          name: 'src',
+          type: 'index',
+          manifest: {
+            root: 'dist',
+            files: {
+              js: [ 'src-build.js' ],
+              css: [
+                'assets/src.css',
+                'assets/baz.css',
+                'assets/shared-dependency.css',
+                'assets/bar.css'
+              ],
+              assets: [ 'assets/background.png' ],
+              imports: [],
+              dynamicImports: [ 'assets/baz.js' ]
+            },
+            src: { js: [ 'src/src.js' ] },
+            devServerUrl: null
+          }
+        },
+        {
+          name: 'article',
+          type: 'custom',
+          manifest: {
+            root: 'dist',
+            files: {
+              js: [ 'article-build.js' ],
+              css: [
+                'assets/article.css',
+                'assets/shared-dependency.css',
+                'assets/bar.css'
+              ],
+              assets: [],
+              imports: [ 'assets/shared-dependency.js' ],
+              dynamicImports: []
+            },
+            src: { js: [ 'src/article.js' ] },
+            devServerUrl: null
+          }
+        },
+        {
+          name: 'tools',
+          type: 'custom',
+          manifest: {
+            root: 'dist',
+            files: {
+              js: [ 'tools-build.js' ],
+              css: [],
+              assets: [],
+              imports: [],
+              dynamicImports: []
+            },
+            src: { js: [ 'src/tools.js' ] },
+            devServerUrl: null
+          }
+        },
+        {
+          name: 'apos',
+          type: 'apos',
+          manifest: {
+            root: 'dist',
+            files: {
+              js: [ 'apos-build.js' ],
+              css: [ 'assets/apos.css' ],
+              assets: [],
+              imports: [],
+              dynamicImports: []
+            },
+            src: { js: [ 'src/apos.js' ] },
+            devServerUrl: null
+          }
+        },
+        {
+          name: 'public',
+          type: 'bundled'
+        }
+      ];
+
+      assert.deepEqual(actual, expected);
+    });
+  });
+
+  describe('Build', function () {
     before(async function () {
       await t.destroy(apos);
       apos = await t.create({
@@ -112,27 +313,23 @@ describe('@apostrophecms/vite', function () {
         })
       });
     });
-    it('should copy files and generate entrypoints', async function () {
+    it('should copy source files and generate entrypoints', async function () {
+      await apos.vite.cleanUpBuildRoot();
       const build = async () => {
         await apos.vite.cleanUpBuildRoot();
-        apos.vite.currentSourceMeta = await apos.vite.computeSourceMeta({ copy: true });
-        await apos.vite.createImports();
+        apos.vite.currentSourceMeta = await apos.vite.computeSourceMeta({ copyFiles: true });
+        const entrypoints = apos.asset.getBuildEntrypoints();
+        await apos.vite.createImports(entrypoints);
       };
       await build();
-      const rootDir = apos.vite.buildRoot;
       const rootDirSrc = apos.vite.buildRootSource;
+      const meta = apos.vite.currentSourceMeta;
 
-      const stat = await fs.stat(path.join(rootDir, '.apos.json'));
-      const meta = JSON.parse(
-        await fs.readFile(path.join(rootDir, '.apos.json'), 'utf8')
-      );
       const aposStat = await fs.stat(path.join(rootDirSrc, 'apos.js'));
       const srcStat = await fs.stat(path.join(rootDirSrc, 'src.js'));
 
-      assert.ok(stat.isFile());
       assert.ok(aposStat.isFile());
       assert.ok(srcStat.isFile());
-      assert.deepEqual(meta, apos.vite.currentSourceMeta);
 
       // Assert meta entries
       const coreModule = '@apostrophecms/admin-bar';
@@ -261,6 +458,48 @@ describe('@apostrophecms/vite', function () {
         );
         assert.equal(match?.length, 1, 'article-widget carousel.js should be imported once');
       }
+    });
+
+    it('should copy public bundled assets', async function () {
+      await apos.vite.cleanUpBuildRoot();
+      const build = async () => {
+        await apos.vite.cleanUpBuildRoot();
+        apos.vite.currentSourceMeta = await apos.vite.computeSourceMeta({ copyFiles: true });
+        const entrypoints = apos.asset.getBuildEntrypoints();
+        await apos.vite.createImports(entrypoints);
+      };
+      const rootDir = apos.vite.buildRoot;
+
+      await build();
+
+      {
+        const stat = await fs.stat(path.join(rootDir, 'public.js'));
+        const content = await fs.readFile(path.join(rootDir, 'public.js'), 'utf8');
+
+        const expected = 'console.log(\'public/article.js\');console.log(\'public/nested/article.js\');';
+        const actual = content.replace(/\s/g, '');
+
+        assert.ok(stat.isFile());
+        assert.equal(actual, expected, 'unexpected public.js content');
+      }
+
+      {
+        const stat = await fs.stat(path.join(rootDir, 'public.css'));
+        const content = await fs.readFile(path.join(rootDir, 'public.css'), 'utf8');
+
+        const expected = '.article-main{margin:0;}.article-nested-main{margin:0;}';
+        const actual = content.replace(/\s/g, '');
+
+        assert.ok(stat.isFile());
+        assert.equal(actual, expected, 'unexpected public.css content');
+      }
+    });
+
+    it('should build ', async function () {
+      await apos.vite.cleanUpBuildRoot();
+      await apos.task.invoke('@apostrophecms/asset:build', {
+        'check-apos-build': false
+      });
     });
   });
 });
