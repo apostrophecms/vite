@@ -18,7 +18,7 @@ module.exports = {
     self.entrypointsManifest = [];
 
     // Populated after a build has been triggered
-    self.buildOptions = null;
+    self.buildOptions = {};
     self.viteDevMiddleware = null;
     self.shouldCreateDevServer = false;
 
