@@ -214,15 +214,15 @@ module.exports = {
       },
       printLabels(id, before) {
         const phrase = before ? 'apostrophe:assetTypeBuilding' : 'apostrophe:assetTypeBuildComplete';
-        const labels = self.getBuildEntrypointsFor(id).map(e => e.label.trim());
         const req = self.apos.task.getReq();
+        const labels = [ ...new Set(
+          self.getBuildEntrypointsFor(id).map(e => req.t(e.label))
+        ) ];
 
-        const allLabels = labels.map((label) => req.t(label));
-
-        if (allLabels.length) {
-          self.apos.util.log(req.t(phrase, {
-            label: allLabels.join(', ')
-          }));
+        if (labels.length) {
+          self.apos.util.log(
+            req.t(phrase, { label: labels.join(', ') })
+          );
         }
       },
       // Initialize the watcher for triggering vite HMR via file
