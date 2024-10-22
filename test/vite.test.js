@@ -59,7 +59,7 @@ describe('@apostrophecms/vite', function () {
         modules: getAppConfig()
       });
     });
-    it.only('should have vite enabled', async function () {
+    it('should apply manifest', async function () {
       const manifest = {
         // Circular dependency with `bar.js`
         '_shared-dependency.js': {
@@ -164,11 +164,88 @@ describe('@apostrophecms/vite', function () {
         }
       ];
 
-      const result = await apos.vite.applyViteManifest(entrypoints, manifest);
-      console.log(require('util').inspect(result, {
-        depth: null,
-        colors: true
-      }));
+      const actual = await apos.vite.applyManifest(entrypoints, manifest);
+      const expected = [
+        {
+          name: 'src',
+          type: 'index',
+          manifest: {
+            root: 'dist',
+            files: {
+              js: [ 'src-build.js' ],
+              css: [
+                'assets/src.css',
+                'assets/baz.css',
+                'assets/shared-dependency.css',
+                'assets/bar.css'
+              ],
+              assets: [ 'assets/background.png' ],
+              imports: [],
+              dynamicImports: [ 'assets/baz.js' ]
+            },
+            src: { js: [ 'src/src.js' ] },
+            devServerUrl: null
+          }
+        },
+        {
+          name: 'article',
+          type: 'custom',
+          manifest: {
+            root: 'dist',
+            files: {
+              js: [ 'article-build.js' ],
+              css: [
+                'assets/article.css',
+                'assets/shared-dependency.css',
+                'assets/bar.css'
+              ],
+              assets: [],
+              imports: [ 'assets/shared-dependency.js' ],
+              dynamicImports: []
+            },
+            src: { js: [ 'src/article.js' ] },
+            devServerUrl: null
+          }
+        },
+        {
+          name: 'tools',
+          type: 'custom',
+          manifest: {
+            root: 'dist',
+            files: {
+              js: [ 'tools-build.js' ],
+              css: [],
+              assets: [],
+              imports: [],
+              dynamicImports: []
+            },
+            src: { js: [ 'src/tools.js' ] },
+            devServerUrl: null
+          }
+        },
+        {
+          name: 'apos',
+          type: 'apos',
+          manifest: {
+            root: 'dist',
+            files: {
+              js: [ 'apos-build.js' ],
+              css: [ 'assets/apos.css' ],
+              assets: [],
+              imports: [],
+              dynamicImports: []
+            },
+            src: { js: [ 'src/apos.js' ] },
+            devServerUrl: null
+          }
+        },
+        {
+          name: 'public',
+          type: 'bundled'
+        }
+      ];
+
+      assert.deepEqual(actual, expected);
     });
   });
 
@@ -245,20 +322,14 @@ describe('@apostrophecms/vite', function () {
         await apos.vite.createImports(entrypoints);
       };
       await build();
-      const rootDir = apos.vite.buildRoot;
       const rootDirSrc = apos.vite.buildRootSource;
+      const meta = apos.vite.currentSourceMeta;
 
-      const stat = await fs.stat(path.join(rootDir, '.apos.json'));
-      const meta = JSON.parse(
-        await fs.readFile(path.join(rootDir, '.apos.json'), 'utf8')
-      );
       const aposStat = await fs.stat(path.join(rootDirSrc, 'apos.js'));
       const srcStat = await fs.stat(path.join(rootDirSrc, 'src.js'));
 
-      assert.ok(stat.isFile());
       assert.ok(aposStat.isFile());
       assert.ok(srcStat.isFile());
-      assert.deepEqual(meta, apos.vite.currentSourceMeta);
 
       // Assert meta entries
       const coreModule = '@apostrophecms/admin-bar';
@@ -393,9 +464,9 @@ describe('@apostrophecms/vite', function () {
       await apos.vite.cleanUpBuildRoot();
       const build = async () => {
         await apos.vite.cleanUpBuildRoot();
-        apos.vite.currentSourceMeta = await apos.vite.computeSourceMeta({ copyFiles: false });
+        apos.vite.currentSourceMeta = await apos.vite.computeSourceMeta({ copyFiles: true });
         const entrypoints = apos.asset.getBuildEntrypoints();
-        await apos.vite.copyExternalBundledAssets(entrypoints);
+        await apos.vite.createImports(entrypoints);
       };
       const rootDir = apos.vite.buildRoot;
 
