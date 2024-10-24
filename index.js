@@ -860,6 +860,8 @@ module.exports = {
         }
       },
       async getPublicViteConfig(options = {}) {
+        const mode = process.env.NODE_ENV === 'production' ? 'production' : 'development';
+
         const entrypoints = self.getBuildEntrypointsFor('public')
           .map((entrypoint) => ([
             entrypoint.name,
@@ -869,8 +871,7 @@ module.exports = {
 
         /** @type {import('vite').UserConfig} */
         const config = {
-          // FIXME: passed down from the build module
-          mode: process.env.NODE_ENV === 'production' ? 'production' : 'development',
+          mode,
           // We might need to utilize the advanced asset settings here.
           // https://vite.dev/guide/build.html#advanced-base-options
           // For now we just use the (real) asset base URL.
@@ -906,7 +907,32 @@ module.exports = {
           }
         };
 
-        return config;
+        // Merge it
+        const vite = await import('vite');
+        const mergeConfigs = vite.defineConfig((configEnv) => {
+          let merged = config;
+          for (const { extensions, name } of self.getBuildEntrypointsFor('public')) {
+            if (!extensions) {
+              continue;
+            }
+            for (const [ key, value ] of Object.entries(extensions)) {
+              self.apos.asset.printDebug('public-config-merge', `[${name}] merging "${key}"`, {
+                entrypoint: name,
+                [key]: value
+              });
+              merged = vite.mergeConfig(merged, value);
+            }
+          }
+
+          return merged;
+        });
+
+        return mergeConfigs({
+          command: options.command ?? 'build',
+          mode,
+          isPreview: false,
+          isSsrBuild: false
+        });
       },
       async cleanUpBuildRoot() {
         await fs.remove(self.buildRoot);
