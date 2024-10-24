@@ -907,8 +907,28 @@ module.exports = {
           }
         };
 
-        // Merge it
         const vite = await import('vite');
+        const configEnv = {
+          command: options.command ?? 'build',
+          mode,
+          isPreview: false,
+          isSsrBuild: false
+        };
+        let userConfig = {};
+        try {
+          const loaded = await vite.loadConfigFromFile(
+            configEnv,
+            'apos.vite.config.mjs',
+            self.apos.rootDir
+          );
+          userConfig = loaded.config;
+        } catch (_) {
+          // do nothing
+          console.log(_);
+        }
+
+        // Merge it
+
         const mergeConfigs = vite.defineConfig((configEnv) => {
           let merged = config;
           for (const { extensions, name } of self.getBuildEntrypointsFor('public')) {
@@ -923,16 +943,14 @@ module.exports = {
               merged = vite.mergeConfig(merged, value);
             }
           }
+          merged = vite.mergeConfig(merged, userConfig);
 
           return merged;
         });
 
-        return mergeConfigs({
-          command: options.command ?? 'build',
-          mode,
-          isPreview: false,
-          isSsrBuild: false
-        });
+        // console.log(mergeConfigs(configEnv).plugins);
+
+        return mergeConfigs(configEnv);
       },
       async cleanUpBuildRoot() {
         await fs.remove(self.buildRoot);
