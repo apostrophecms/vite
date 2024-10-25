@@ -421,7 +421,7 @@ module.exports = {
       // If an entrypoint `type` is is provided, a check against the current build options
       // will be performed and appropriate values will be returned.
       getDevServerUrl() {
-        return self.apos.asset.getBaseDevSiteUrl() + '/__vite';
+        return self.apos.asset.getBaseMiddlewareUrl() + '/__vite';
       },
       hasDevServerUrl(type) {
         if (!self.buildOptions.devServer) {
