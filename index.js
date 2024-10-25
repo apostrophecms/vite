@@ -19,7 +19,7 @@ module.exports = {
 
     // Populated after a build has been triggered
     self.buildOptions = {};
-    self.viteDevMiddleware = null;
+    self.viteDevInstance = null;
     self.shouldCreateDevServer = false;
 
     // Populated when a watch is triggered
@@ -60,6 +60,14 @@ module.exports = {
             await self.createViteInstance(self.buildOptions);
           }
         }
+      },
+      'apostrophe:destroy': {
+        async destroyBuildWatcher() {
+          if (self.viteDevInstance) {
+            await self.viteDevInstance.close();
+            self.viteDevInstance = null;
+          }
+        }
       }
     };
   },
@@ -73,12 +81,12 @@ module.exports = {
         before: '@apostrophecms/express',
         url: '/__vite',
         middleware: async (req, res, next) => {
-          if (!self.shouldCreateDevServer) {
-            return next();
+          if (!self.shouldCreateDevServer || !self.viteDevInstance) {
+            return res.status(403).send('forbidden');
           }
           // Do not provide `next` to the middleware, we want to stop the chain here
           // if the request is handled by Vite. It provides its own 404 handler.
-          self.viteDevMiddleware(req, res);
+          self.viteDevInstance.middlewares(req, res);
         }
       }
     };
@@ -87,6 +95,7 @@ module.exports = {
   methods(self) {
     return {
       // see @apostrophecms/assset:getBuildOptions() for the options shape.
+      // A required interface for the asset module.
       async build(options = {}) {
         self.buildOptions = options;
         await self.buildBefore(options);
@@ -99,42 +108,21 @@ module.exports = {
         return {
           entrypoints: self.entrypointsManifest,
           sourceMapsRoot: self.distRoot,
+          devServerUrl: null,
           ts
         };
       },
+      // A required interface for the asset module.
       async startDevServer(options) {
         self.buildOptions = options;
         self.shouldCreateDevServer = true;
         await self.buildBefore(options);
 
-        let currentBuild;
-        const currentScenes = [];
+        const { scenes: currentScenes, build: currentBuild } = self.getCurrentMode(options.devServer);
+
+        self.entrypointsManifest.unshift(self.getViteEntrypoint(currentScenes));
+
         let ts;
-        if (options.devServer === 'apos') {
-          currentBuild = 'public';
-          currentScenes.push('apos');
-        }
-        if (options.devServer === 'public') {
-          currentBuild = 'apos';
-          currentScenes.push('public', 'apos');
-        }
-
-        const devServerUrl = self.getDevServerUrl();
-        self.entrypointsManifest.unshift({
-          name: 'vite',
-          type: 'bundled',
-          scenes: currentScenes,
-          outputs: [ 'js' ],
-          manifest: {
-            root: '',
-            files: {},
-            src: {
-              js: [ '@vite/client' ]
-            },
-            devServerUrl
-          }
-        });
-
         if (currentBuild === 'public') {
           await self.buildPublic(options);
         }
@@ -152,8 +140,58 @@ module.exports = {
               .map((entry) => entry.type)
           ) ],
           ts,
-          devServerUrl
+          devServerUrl: self.getDevServerUrl()
         };
+      },
+      // A required interface for the asset module.
+      // Initialize the watcher for triggering vite HMR via file
+      // copy to the build source.
+      // `chokidar` is a chockidar `FSWatcher` or compatible instance.
+      async watch(chokidar) {
+        self.buildWatchIndex();
+        chokidar
+          .on('add', (p) => self.onSourceAdd(p, false))
+          .on('addDir', (p) => self.onSourceAdd(p, true))
+          .on('change', self.onSourceChange)
+          .on('unlink', (p) => self.onSourceUnlink(p, false))
+          .on('unlinkDir', (p) => self.onSourceUnlink(p, true));
+      },
+      // A required interface for the asset module.
+      // This method is called when build and watch are not triggered.
+      // Enhance and return any entrypoints that are included in the manifest
+      // when an actual build/devServer is triggered.
+      // The options are same as the ones provided in the `build` adn `startDevServer` methods.
+      async entrypoints(options) {
+        const entrypoints = self.apos.asset.getBuildEntrypoints(options.types)
+          .filter(entrypoint => entrypoint.condition !== 'nomodule');
+
+        if (options.devServer) {
+          const { scenes } = self.getCurrentMode(options.devServer);
+          entrypoints.unshift(self.getViteEntrypoint(scenes));
+        }
+
+        return entrypoints;
+      },
+      async buildBefore(options = {}) {
+        if (options.isTask) {
+          await self.cleanUpBuildRoot();
+        }
+        self.currentSourceMeta = await self.computeSourceMeta({
+          copyFiles: true
+        });
+        const entrypoints = self.apos.asset.getBuildEntrypoints(options.types);
+        await self.createImports(entrypoints);
+
+        // Copy the public files so that Vite is not complaining about missing files
+        // while building the project.
+        try {
+          await fs.copy(
+            path.join(self.apos.asset.getBundleRootDir(), 'modules'),
+            path.join(self.buildRoot, 'modules')
+          );
+        } catch (_) {
+          // do nothing
+        }
       },
       // Builds the apos UI assets.
       async buildApos(options) {
@@ -186,6 +224,39 @@ module.exports = {
         const { build, config } = await self.getViteBuild('public', options);
         await build(config);
         self.printLabels('public', false);
+      },
+      getViteEntrypoint(scenes) {
+        return {
+          name: 'vite',
+          type: 'bundled',
+          scenes,
+          outputs: [ 'js' ],
+          manifest: {
+            root: '',
+            files: {},
+            src: {
+              js: [ '@vite/client' ]
+            },
+            devServer: true
+          }
+        };
+      },
+      getCurrentMode(devServer) {
+        let currentBuild;
+        const currentScenes = [];
+        if (devServer === 'apos') {
+          currentBuild = 'public';
+          currentScenes.push('apos');
+        }
+        if (devServer === 'public') {
+          currentBuild = 'apos';
+          currentScenes.push('public', 'apos');
+        }
+
+        return {
+          build: currentBuild,
+          scenes: currentScenes
+        };
       },
       // Assesses if the apos build should be triggered.
       async shouldBuild(id, options) {
@@ -225,18 +296,6 @@ module.exports = {
           );
         }
       },
-      // Initialize the watcher for triggering vite HMR via file
-      // copy to the build source.
-      // `chokidar` is a chockidar `FSWatcher` or compatible instance.
-      async watch(chokidar) {
-        self.buildWatchIndex();
-        chokidar
-          .on('add', (p) => self.onSourceAdd(p, false))
-          .on('addDir', (p) => self.onSourceAdd(p, true))
-          .on('change', self.onSourceChange)
-          .on('unlink', (p) => self.onSourceUnlink(p, false))
-          .on('unlinkDir', (p) => self.onSourceUnlink(p, true));
-      },
       buildWatchIndex() {
         self.currentSourceMeta.forEach((entry, index) => {
           self.currentSourceUiIndex[entry.dirname] = index;
@@ -251,11 +310,14 @@ module.exports = {
           self.currentSourceAliasIndex[entry.importAlias] = index;
         });
       },
+      getRootPath(onChangePath) {
+        return path.join(self.apos.npmRootDir, onChangePath);
+      },
       onSourceAdd(filePath, isDir) {
         if (isDir) {
           return;
         }
-        const p = path.join(self.apos.rootDir, filePath);
+        const p = self.getRootPath(filePath);
         const key = Object.keys(self.currentSourceUiIndex)
           .filter((dir) => p.startsWith(dir))
           .reduce((acc, dir) => {
@@ -292,7 +354,7 @@ module.exports = {
         // when we generate the import files.
       },
       onSourceChange(filePath, silent = false) {
-        const p = path.join(self.apos.rootDir, filePath);
+        const p = self.getRootPath(filePath);
         const source = self.currentSourceMeta[self.currentSourceFsIndex[p]]
           ?.files.find((file) => p.endsWith(file));
         if (!source) {
@@ -322,7 +384,7 @@ module.exports = {
         if (isDir) {
           return;
         }
-        const p = path.join(self.apos.rootDir, filePath);
+        const p = self.getRootPath(filePath);
         const source = self.currentSourceMeta[self.currentSourceFsIndex[p]]
           ?.files.find((file) => p.endsWith(file));
         if (!source) {
@@ -355,45 +417,27 @@ module.exports = {
         // per "current entrypoints" similar to what we are doing in the build process
         // when we generate the import files.
       },
-      async buildBefore(options = {}) {
-        if (options.isTask) {
-          await self.cleanUpBuildRoot();
-        }
-        self.currentSourceMeta = await self.computeSourceMeta({
-          copyFiles: true
-        });
-        const entrypoints = self.apos.asset.getBuildEntrypoints(options.types);
-        await self.createImports(entrypoints);
-
-        // Copy the public files so that Vite is not complaining about missing files
-        // while building the project.
-        try {
-          await fs.copy(
-            path.join(self.apos.asset.getBundleRootDir(), 'modules'),
-            path.join(self.buildRoot, 'modules')
-          );
-        } catch (_) {
-          // do nothing
-        }
-      },
       // Get the base URL for the dev server.
       // If an entrypoint `type` is is provided, a check against the current build options
       // will be performed and appropriate values will be returned.
-      getDevServerUrl(type) {
+      getDevServerUrl() {
+        return self.apos.asset.getBaseDevSiteUrl() + '/__vite';
+      },
+      hasDevServerUrl(type) {
         if (!self.buildOptions.devServer) {
-          return null;
+          return false;
         }
         if (type === 'bundled') {
-          return null;
+          return false;
         }
         if (type === 'apos' && self.buildOptions.devServer === 'public') {
-          return null;
+          return false;
         }
         if (type && type !== 'apos' && self.buildOptions.devServer === 'apos') {
-          return null;
+          return false;
         }
 
-        return self.apos.asset.getBaseDevSiteUrl() + '/__vite';
+        return true;
       },
       // Private methods
       async initWhenReady() {
@@ -410,13 +454,20 @@ module.exports = {
           apos: path.join(self.distRoot, aposRel)
         };
 
+        self.userConfigFile = path.join(self.apos.rootDir, 'apos.vite.config.mjs');
+        if (!fs.existsSync(self.userConfigFile)) {
+          self.userConfigFile = path.join(self.apos.rootDir, 'apos.vite.config.js');
+        }
+        if (!fs.existsSync(self.userConfigFile)) {
+          self.userConfigFile = null;
+        }
+
         await fs.mkdir(self.buildRootSource, { recursive: true });
       },
       // Create a vite instance. This can be called only when we have
       // a running express server. See handlers `afterListen`.
       async createViteInstance(options) {
         const vite = await import('vite');
-        // FIXME: get the propper config.
         const viteConfig = await self.getViteConfig(options.devServer, options);
         // FIXME use Vite's merge here.
         // Provide the parent server. Read the note in the URL below.
@@ -432,13 +483,15 @@ module.exports = {
           }
         };
 
+        // FIXME use Vite's merge here.
         if (options.hmr) {
           // Attach the HMR server to the apos express server
           // https://github.com/vitejs/vite/issues/15297#issuecomment-1849135695
           config.server = {
             ...config.server,
             hmr: {
-              server: self.apos.modules['@apostrophecms/express'].server
+              server: self.apos.modules['@apostrophecms/express'].server,
+              port: options.hmrPort || undefined
             }
           };
         } else {
@@ -454,8 +507,10 @@ module.exports = {
           ...config,
           configFile: false
         });
-        self.viteDevMiddleware = instance.middlewares;
-        self.apos.util.log(`Vite dev server for "${options.devServer}" builds running at ${self.getDevServerUrl()}`);
+        self.viteDevInstance = instance;
+        self.apos.util.log(
+          `HMR for "${options.devServer}" started`
+        );
       },
       // Compute metadata for the source files of all modules using
       // the core asset handler. Optionally copy the files to the build
@@ -609,7 +664,7 @@ module.exports = {
             src: {
               js: [ manifest.src ]
             },
-            devServerUrl: self.getDevServerUrl(entrypoint.type)
+            devServer: self.hasDevServerUrl(entrypoint.type)
           };
           result.push(entrypoint);
         }
@@ -666,7 +721,7 @@ module.exports = {
             },
             // Bundled entrypoints are not served by the dev server.
             src: null,
-            devServerUrl: null
+            devServer: false
           };
           if (result.files.js.length || result.files.css.length) {
             return result;
@@ -687,7 +742,7 @@ module.exports = {
           src: {
             js: [ path.join(self.buildSourceFolderName, `${entrypoint.name}.js`) ]
           },
-          devServerUrl: self.getDevServerUrl(entrypoint.type)
+          devServer: self.hasDevServerUrl(entrypoint.type)
         };
       },
       // Get the build manifest for the current run.
@@ -734,7 +789,6 @@ module.exports = {
       },
       // `id` is `public` or `apos`
       async getViteBuild(id, options) {
-        // FIXME make it an import when we become an ES module.
         const { build } = await import('vite');
         const config = await self.getViteConfig(id, options);
         return {
@@ -752,7 +806,7 @@ module.exports = {
         }
         throw new Error(`Invalid Vite config ID "${id}"`);
       },
-      // FIXME: This should become a vite plugin.
+      // FIXME: This should become a vite plugin. Rework and cleanup the config.
       async getAposViteConfig(options = {}) {
         // FIXME make it an import when we become an ES module.
         const vue = await import('@vitejs/plugin-vue');
@@ -770,7 +824,7 @@ module.exports = {
           // We might need to utilize the advanced asset settings here.
           // https://vite.dev/guide/build.html#advanced-base-options
           // For now we just use the (real) asset base URL.
-          base: self.apos.asset.getAssetBaseSystemUrl(),
+          base: self.apos.asset.getAssetBaseUrl(),
           root: self.buildRoot,
           appType: 'custom',
           publicDir: false,
@@ -875,7 +929,7 @@ module.exports = {
           // We might need to utilize the advanced asset settings here.
           // https://vite.dev/guide/build.html#advanced-base-options
           // For now we just use the (real) asset base URL.
-          base: self.apos.asset.getAssetBaseSystemUrl(),
+          base: self.apos.asset.getAssetBaseUrl(),
           root: self.buildRoot,
           appType: 'custom',
           publicDir: false,
@@ -915,20 +969,18 @@ module.exports = {
           isSsrBuild: false
         };
         let userConfig = {};
-        try {
-          const loaded = await vite.loadConfigFromFile(
-            configEnv,
-            'apos.vite.config.mjs',
-            self.apos.rootDir
-          );
+
+        const loaded = await vite.loadConfigFromFile(
+          configEnv,
+          self.userConfigFile,
+          self.apos.rootDir,
+          'silent'
+        );
+        if (loaded) {
           userConfig = loaded.config;
-        } catch (_) {
-          // do nothing
-          console.log(_);
         }
 
         // Merge it
-
         const mergeConfigs = vite.defineConfig((configEnv) => {
           let merged = config;
           for (const { extensions, name } of self.getBuildEntrypointsFor('public')) {
@@ -947,8 +999,6 @@ module.exports = {
 
           return merged;
         });
-
-        // console.log(mergeConfigs(configEnv).plugins);
 
         return mergeConfigs(configEnv);
       },
