@@ -184,7 +184,7 @@ describe('@apostrophecms/vite', function () {
               dynamicImports: [ 'assets/baz.js' ]
             },
             src: { js: [ 'src/src.js' ] },
-            devServerUrl: null
+            devServer: false
           }
         },
         {
@@ -204,7 +204,7 @@ describe('@apostrophecms/vite', function () {
               dynamicImports: []
             },
             src: { js: [ 'src/article.js' ] },
-            devServerUrl: null
+            devServer: false
           }
         },
         {
@@ -220,7 +220,7 @@ describe('@apostrophecms/vite', function () {
               dynamicImports: []
             },
             src: { js: [ 'src/tools.js' ] },
-            devServerUrl: null
+            devServer: false
           }
         },
         {
@@ -236,7 +236,7 @@ describe('@apostrophecms/vite', function () {
               dynamicImports: []
             },
             src: { js: [ 'src/apos.js' ] },
-            devServerUrl: null
+            devServer: false
           }
         },
         {
