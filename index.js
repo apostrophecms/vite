@@ -890,7 +890,7 @@ module.exports = {
                 // FIXME - log system
                 console.error('APOS MODULE RESOLVE FAILED!',
                   'FROM: ' + source,
-                  'TO' + path.join(self.buildRootSource, moduleName, 'apos', ...chunks)
+                  'TO: ' + path.join(self.buildRootSource, moduleName, 'apos', ...chunks)
                 );
               }
               return resolved;
