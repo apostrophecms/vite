@@ -44,4 +44,4 @@ TODO: Documentation
 ## Watch out in your code
 - Remove all `~` from your CSS/Sass imports (e.g. `~normalize.css` -> `normalize.css`)
 - **(recommended but not required)** Do not import apos sources directly from the `apostrophe/modules/module-name/ui/apos/components/...` but use the alias `Modules/module-name/components/...` instead.
-- Do not use any `cjs` imports (`require(..)`) in your UI source code, only `esm` imports (`import abc from xxx` or `const abc await import(xxx)`) are supported.
+- Do not use any `cjs` imports/exports (`require(..)`, `module.exports`, `exports.xxx`) in your UI source code, only `esm` imports (`import abc from xxx` or `const abc await import(xxx)`) are supported.
