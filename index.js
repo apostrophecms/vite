@@ -830,6 +830,10 @@ module.exports = {
           publicDir: false,
           cacheDir: path.join(self.apos.rootDir, 'data/temp', self.apos.asset.getNamespace(), 'vite/apos'),
           clearScreen: false,
+          // Breaks symlinked modules if not enabled
+          resolve: {
+            preserveSymlinks: true
+          },
           css: {
             preprocessorOptions: {
               scss: {
@@ -935,6 +939,10 @@ module.exports = {
           publicDir: false,
           cacheDir: path.join(self.apos.rootDir, 'data/temp', self.apos.asset.getNamespace(), 'vite/public'),
           clearScreen: false,
+          // Breaks symlinked modules if not enabled
+          resolve: {
+            preserveSymlinks: true
+          },
           css: {
             preprocessorOptions: {
               scss: {
