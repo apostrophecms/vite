@@ -314,9 +314,8 @@ describe('@apostrophecms/vite', function () {
       });
     });
     it('should copy source files and generate entrypoints', async function () {
-      await apos.vite.cleanUpBuildRoot();
       const build = async () => {
-        await apos.vite.cleanUpBuildRoot();
+        await apos.vite.reset();
         apos.vite.currentSourceMeta = await apos.vite.computeSourceMeta({ copyFiles: true });
         const entrypoints = apos.asset.getBuildEntrypoints();
         await apos.vite.createImports(entrypoints);
@@ -461,9 +460,8 @@ describe('@apostrophecms/vite', function () {
     });
 
     it('should copy public bundled assets', async function () {
-      await apos.vite.cleanUpBuildRoot();
       const build = async () => {
-        await apos.vite.cleanUpBuildRoot();
+        await apos.vite.reset();
         apos.vite.currentSourceMeta = await apos.vite.computeSourceMeta({ copyFiles: true });
         const entrypoints = apos.asset.getBuildEntrypoints();
         await apos.vite.createImports(entrypoints);
@@ -496,7 +494,7 @@ describe('@apostrophecms/vite', function () {
     });
 
     it('should build ', async function () {
-      await apos.vite.cleanUpBuildRoot();
+      await apos.vite.reset();
       await apos.task.invoke('@apostrophecms/asset:build', {
         'check-apos-build': false
       });
