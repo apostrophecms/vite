@@ -3,6 +3,12 @@
   "version": "1.0.0",
   "description": "Vite build flow for Apostrophe CMS projects.",
   "main": "index.js",
+  "exports": {
+    ".": "./index.js",
+    "./vite": {
+      "import": "./vite.mjs"
+    }
+  },
   "scripts": {
     "eslint": "eslint --ext .js .",
     "lint": "npm run eslint",
