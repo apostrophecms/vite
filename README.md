@@ -41,6 +41,11 @@ require('apostrophe')({
 
 TODO: Documentation
 
+## Limitations
+
+- HMR watches only existing `anyModule/ui` directories, so if you add a `ui` directory to a module, you need to restart the server (type `rs` in the terminal and press `Enter` if you are using `nodemon` which is by default in ApostropheCMS starter kits) to make HMR work for the new module.
+- changes to `ui/public` does not trigger HMR and/or page reload, because those require a process restart. This might be implemented in the future (or might not, depending on the needs). A workaround is to register all `ui/public/` folders to the `nodemon` watch list (in the `nodemon.json` or `package.json` file, depending on the setup).
+
 ## Watch out in your code
 - Remove all `~` from your CSS/Sass imports (e.g. `~normalize.css` -> `normalize.css`)
 - **(recommended but not required)** Do not import apos sources directly from the `apostrophe/modules/module-name/ui/apos/components/...` but use the alias `Modules/module-name/components/...` instead.

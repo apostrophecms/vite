@@ -23,14 +23,12 @@ module.exports = {
     self.shouldCreateDevServer = false;
 
     // Populated when a watch is triggered
-    // all UI folders -> index
+    // UI folder -> index
     self.currentSourceUiIndex = {};
-    // all path -> index
+    // /absolute/path -> index
     self.currentSourceFsIndex = {};
-    // relative/path/file -> [ index1, index2 ]
+    // ui/relative/path/file -> [ index1, index2 ]
     self.currentSourceRelIndex = new Map();
-    // Modules/moduleName/ -> index
-    self.currentSourceAliasIndex = {};
 
     // IMPORTANT: This should not be removed.
     // Vite depends on both process.env.NODE_ENV and the `mode` config option.
@@ -147,12 +145,18 @@ module.exports = {
       // Initialize the watcher for triggering vite HMR via file
       // copy to the build source.
       // `chokidar` is a chockidar `FSWatcher` or compatible instance.
-      async watch(chokidar) {
+      async watch(chokidar, buildOptions) {
         self.buildWatchIndex();
+        // Initialize our voting system to detect what entrypoints
+        // are concerned with a given source file change.
+        self.setWatchVoters(
+          self.getBuildEntrypointsFor(buildOptions.devServer)
+        );
+
         chokidar
           .on('add', (p) => self.onSourceAdd(p, false))
           .on('addDir', (p) => self.onSourceAdd(p, true))
-          .on('change', self.onSourceChange)
+          .on('change', (p) => self.onSourceChange(p))
           .on('unlink', (p) => self.onSourceUnlink(p, false))
           .on('unlinkDir', (p) => self.onSourceUnlink(p, true));
       },
