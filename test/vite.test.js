@@ -40,12 +40,19 @@ describe('@apostrophecms/vite', function () {
       });
     });
     it('should have vite enabled', function () {
-      const actual = Object.keys(apos.modules).includes('@apostrophecms/vite');
-      const expected = true;
+      const actual = {
+        isViteEnabled: Object.keys(apos.modules).includes('@apostrophecms/vite'),
+        buildModuleAlias: apos.asset.getBuildModuleAlias(),
+        buildModuleConfigName: apos.asset.getBuildModuleConfig().name
+      };
 
-      assert.equal(actual, expected);
-      assert.equal(apos.asset.getBuildModuleAlias(), 'vite');
-      assert.equal(apos.asset.getBuildModuleConfig().name, '@apostrophecms/vite');
+      const expected = {
+        isViteEnabled: true,
+        buildModuleAlias: 'vite',
+        buildModuleConfigName: '@apostrophecms/vite'
+      };
+
+      assert.deepEqual(actual, expected);
     });
   });
 

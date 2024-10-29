@@ -1,4 +1,5 @@
 const fs = require('fs-extra');
+const internalLib = require('./lib/internals.js');
 
 module.exports = {
   before: '@apostrophecms/asset',
@@ -194,7 +195,7 @@ module.exports = {
         await fs.mkdir(self.buildRoot, { recursive: true });
       },
       // Internal implementation.
-      ...require('./lib/internals.js')(self)
+      ...internalLib(self)
     };
   }
 };

@@ -1,7 +1,7 @@
 {
   "name": "@apostrophecms/vite",
   "version": "1.0.0",
-  "description": "Vite build flow for Apostrophe CMS projects.",
+  "description": "Vite build flow for ApostropheCMS projects.",
   "main": "index.js",
   "exports": {
     ".": "./index.js",
