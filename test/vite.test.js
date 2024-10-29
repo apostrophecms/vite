@@ -316,7 +316,8 @@ describe('@apostrophecms/vite', function () {
     it('should copy source files and generate entrypoints', async function () {
       const build = async () => {
         await apos.vite.reset();
-        apos.vite.currentSourceMeta = await apos.vite.computeSourceMeta({ copyFiles: true });
+        apos.vite.currentSourceMeta = await apos.vite
+          .computeSourceMeta({ copyFiles: true });
         const entrypoints = apos.asset.getBuildEntrypoints();
         await apos.vite.createImports(entrypoints);
       };
@@ -462,7 +463,8 @@ describe('@apostrophecms/vite', function () {
     it('should copy public bundled assets', async function () {
       const build = async () => {
         await apos.vite.reset();
-        apos.vite.currentSourceMeta = await apos.vite.computeSourceMeta({ copyFiles: true });
+        apos.vite.currentSourceMeta = await apos.vite
+          .computeSourceMeta({ copyFiles: true });
         const entrypoints = apos.asset.getBuildEntrypoints();
         await apos.vite.createImports(entrypoints);
       };

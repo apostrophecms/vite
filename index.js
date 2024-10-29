@@ -102,7 +102,9 @@ module.exports = {
         const ts = await self.buildApos(options);
 
         const viteManifest = await self.getViteBuildManifest();
-        self.entrypointsManifest = await self.applyManifest(self.entrypointsManifest, viteManifest);
+        self.entrypointsManifest = await self.applyManifest(
+          self.entrypointsManifest, viteManifest
+        );
         return {
           entrypoints: self.entrypointsManifest,
           sourceMapsRoot: self.distRoot,
@@ -116,7 +118,10 @@ module.exports = {
         self.shouldCreateDevServer = true;
         await self.buildBefore(options);
 
-        const { scenes: currentScenes, build: currentBuild } = self.getCurrentMode(options.devServer);
+        const {
+          scenes: currentScenes,
+          build: currentBuild
+        } = self.getCurrentMode(options.devServer);
 
         self.entrypointsManifest.unshift(self.getViteClientEntrypoint(currentScenes));
 
@@ -129,7 +134,9 @@ module.exports = {
         }
 
         const viteManifest = await self.getViteBuildManifest(currentBuild);
-        self.entrypointsManifest = await self.applyManifest(self.entrypointsManifest, viteManifest);
+        self.entrypointsManifest = await self.applyManifest(
+          self.entrypointsManifest, viteManifest
+        );
 
         return {
           entrypoints: self.entrypointsManifest,
@@ -164,7 +171,8 @@ module.exports = {
       // This method is called when build and watch are not triggered.
       // Enhance and return any entrypoints that are included in the manifest
       // when an actual build/devServer is triggered.
-      // The options are same as the ones provided in the `build` adn `startDevServer` methods.
+      // The options are same as the ones provided in the `build` and
+      // `startDevServer` methods.
       async entrypoints(options) {
         const entrypoints = self.apos.asset.getBuildEntrypoints(options.types)
           .filter(entrypoint => entrypoint.condition !== 'nomodule');
