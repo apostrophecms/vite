@@ -1,5 +1,5 @@
 const assert = require('node:assert/strict');
-const fs = require('node:fs/promises');
+const fs = require('fs-extra');
 const path = require('node:path');
 const t = require('apostrophe/test-lib/util.js');
 
@@ -256,61 +256,7 @@ describe('@apostrophecms/vite', function () {
         root: module,
         testModule: true,
         autoBuild: false,
-        modules: getAppConfig({
-          '@apostrophecms/asset': {
-            options: {
-              rebundleModules: {
-                'article-page': 'article',
-                'article-widget': 'main',
-                'selected-article-widget:tabs': 'tools',
-                '@apostrophecms/my-home-page:main': 'main'
-              }
-            }
-          },
-          'admin-bar-component': {},
-          '@apostrophecms/home-page': {
-            build: {
-              vite: {
-                bundles: {
-                  topic: {},
-                  main: {}
-                }
-              }
-            }
-          },
-          article: {
-            extend: '@apostrophecms/piece-type',
-            init() {}
-          },
-          'article-page': {
-            build: {
-              vite: {
-                bundles: {
-                  main: {}
-                }
-              }
-            }
-          },
-          'article-widget': {
-            build: {
-              vite: {
-                bundles: {
-                  topic: {},
-                  carousel: {}
-                }
-              }
-            }
-          },
-          'selected-article-widget': {
-            build: {
-              vite: {
-                bundles: {
-                  tabs: {}
-                }
-              }
-            }
-          }
-        })
+        modules: getAppConfig(getBuildModules())
       });
     });
     it('should copy source files and generate entrypoints', async function () {
@@ -495,11 +441,81 @@ describe('@apostrophecms/vite', function () {
       }
     });
 
-    it('should build ', async function () {
+    it('should build', async function () {
       await apos.vite.reset();
       await apos.task.invoke('@apostrophecms/asset:build', {
         'check-apos-build': false
       });
+
+      const bundleDir = apos.asset.getBundleRootDir();
+      assert.ok(fs.existsSync(path.join(bundleDir, '.manifest.json')));
+      assert.ok(fs.existsSync(path.join(bundleDir, 'apos-bundle.css')));
+      assert.ok(fs.existsSync(path.join(bundleDir, 'apos-module-bundle.js')));
+      assert.ok(fs.existsSync(path.join(bundleDir, 'apos-public-module-bundle.js')));
+      assert.ok(fs.existsSync(path.join(bundleDir, 'apos-src-module-bundle.js')));
+      assert.ok(fs.existsSync(path.join(bundleDir, 'article-module-bundle.js')));
+      assert.ok(fs.existsSync(path.join(bundleDir, 'public-module-bundle.js')));
+      assert.ok(fs.existsSync(path.join(bundleDir, 'public-src-module-bundle.js')));
+      assert.ok(fs.existsSync(path.join(bundleDir, 'tools-module-bundle.js')));
     });
   });
 });
+
+function getBuildModules(assetOptions = {}) {
+  return {
+    '@apostrophecms/asset': {
+      options: {
+        rebundleModules: {
+          'article-page': 'article',
+          'article-widget': 'main',
+          'selected-article-widget:tabs': 'tools',
+          '@apostrophecms/my-home-page:main': 'main'
+        },
+        ...assetOptions
+      }
+    },
+    'admin-bar-component': {},
+    '@apostrophecms/home-page': {
+      build: {
+        vite: {
+          bundles: {
+            topic: {},
+            main: {}
+          }
+        }
+      }
+    },
+    article: {
+      extend: '@apostrophecms/piece-type',
+      init() {}
+    },
+    'article-page': {
+      build: {
+        vite: {
+          bundles: {
+            main: {}
+          }
+        }
+      }
+    },
+    'article-widget': {
+      build: {
+        vite: {
+          bundles: {
+            topic: {},
+            carousel: {}
+          }
+        }
+      }
+    },
+    'selected-article-widget': {
+      build: {
+        vite: {
+          bundles: {
+            tabs: {}
+          }
+        }
+      }
+    }
+  };
+}
