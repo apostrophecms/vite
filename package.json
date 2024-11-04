@@ -30,7 +30,8 @@
     "eslint-plugin-import": "^2.29.0",
     "eslint-plugin-node": "^11.1.0",
     "eslint-plugin-promise": "^6.1.1",
-    "mocha": "^10.2.0"
+    "mocha": "^10.2.0",
+    "postcss-viewport-to-container-toggle": "github:apostrophecms/postcss-viewport-to-container-toggle#pro-6694-mobile-preview-plugin"
   },
   "dependencies": {
     "@vitejs/plugin-vue": "^5.1.4",
