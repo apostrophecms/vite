@@ -96,6 +96,7 @@ module.exports = {
       // see @apostrophecms/assset:getBuildOptions() for the options shape.
       // A required interface for the asset module.
       async build(options = {}) {
+        self.printDebug('build-options', { buildOptions: options });
         self.buildOptions = options;
         await self.buildBefore(options);
 
@@ -115,6 +116,7 @@ module.exports = {
       },
       // A required interface for the asset module.
       async startDevServer(options) {
+        self.printDebug('dev-server-build-options', { buildOptions: options });
         self.buildOptions = options;
         self.shouldCreateDevServer = true;
         await self.buildBefore(options);
@@ -124,7 +126,7 @@ module.exports = {
           build: currentBuild
         } = self.getCurrentMode(options.devServer);
 
-        self.entrypointsManifest.unshift(self.getViteClientEntrypoint(currentScenes));
+        self.ensureViteClientEntry(self.entrypointsManifest, currentScenes, options);
 
         let ts;
         if (currentBuild === 'public') {
@@ -151,9 +153,11 @@ module.exports = {
       },
       // A required interface for the asset module.
       // Initialize the watcher for triggering vite HMR via file
-      // copy to the build source.
+      // copy to the build source. This method is called always
+      // after the `startDevServer` method.
       // `chokidar` is a chockidar `FSWatcher` or compatible instance.
       async watch(chokidar, buildOptions) {
+        self.printDebug('watch-build-options', { buildOptions });
         self.buildWatchIndex();
         // Initialize our voting system to detect what entrypoints
         // are concerned with a given source file change.
@@ -175,12 +179,15 @@ module.exports = {
       // The options are same as the ones provided in the `build` and
       // `startDevServer` methods.
       async entrypoints(options) {
+        self.printDebug('entrypoints-build-options', { buildOptions: options });
         const entrypoints = self.apos.asset.getBuildEntrypoints(options.types)
           .filter(entrypoint => entrypoint.condition !== 'nomodule');
 
+        self.ensureInitEntry(entrypoints);
+
         if (options.devServer) {
           const { scenes } = self.getCurrentMode(options.devServer);
-          entrypoints.unshift(self.getViteClientEntrypoint(scenes));
+          self.ensureViteClientEntry(entrypoints, scenes, options);
         }
 
         return entrypoints;
