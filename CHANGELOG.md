@@ -12,6 +12,7 @@
 * Adds support for `synthetic` entrypoints, that will only process the entrypoint `prologue`.
 * Adds support for `Modules/...` alias for the public builds (Webpack BC). 
 * Our Vite alias plugin now throws with an useful error message when `Modules/` alias resolver fails.
+* Adds sass resolver for `Modules/` alias. It works for both public and private builds in exactly the same way as the JS resolver.
 
 ### Fixes
 
