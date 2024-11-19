@@ -162,6 +162,59 @@ bundler: 'webpack' // Only visible when using webpack
 
 You can combine these options to precisely control when your component appears. For example, to show a component only when using Vite with HMR active, you would use both `when: 'hmr'` and `bundler: 'vite'`.
 
+## Provided Vite Configuration
+
+While the `apos` build (the code living in every module `ui/apos` directory) is fully preconfigured and doesn't allow for customization, the `public` build (the code imported within `ui/src/` ) is fully customizable and contains a minimal configuration to get you started:
+- A PostCSS plugin to handle core features as "Breakpoint Preview" (when enabled)
+- `Modules/` alias to simplify module within the same build 
+- `@/` alias to allow easy access to cross-module and cross-build source code
+
+### Pre-configured Aliases
+
+`Modules/` alias is available for both public and admin UI builds and allows you to import modules in your project without worrying about the relative path, but restricts you to only sources inside of `ui/src` directories.
+
+```javascript
+// Current file: modules/another-module/ui/src/index.js
+// Actual import path: modules/my-module/ui/src/lib/utils.js
+import utils from 'Modules/my-module/lib/utils.js';
+```
+
+`@/` alias is available for both public and admin UI builds and allows you to import files from the entire project source code.
+
+```javascript
+// Current file: any file in any module inside of the `ui/` folder
+// Actual path: modules/my-module/ui/src/lib/utils.js
+import utils from '@/modules/my-module/src/lib/utils.js';
+
+// Actual path: modules/my-module/ui/apos/mixins/SomeMixin.js
+import SomeMixin from '@/modules/my-module/apos/mixins/SomeMixin.js';
+```
+
+## Configuring Your Code Editor
+
+Every editor, that understands the `jsconfig.json` or `tsconfig.json` file, can be configured to understand the `@/` alias provided by this module. Here is an example of a `jsconfig.json` file that you can place in your project root:
+
+```json
+{
+  "compilerOptions": {
+    "baseUrl": "./apos-build/@apostrophecms/vite/default",
+    "paths": {
+      "@/*": ["./src/*"]
+    },
+    "module": "ESNext",
+    "moduleResolution": "bundler"
+  },
+  "exclude": [
+    "apos-build/@apostrophecms/vite/default/dist",
+    "node_modules",
+    "public",
+    "data"
+  ]
+}
+```
+
+> Note: If you change your project asset namespace you have to adjust the `baseUrl` and `exclude` path accordingly. For example, if your project namespace is `my-namespace`, the `baseUrl` should be `./apos-build/@apostrophecms/vite/my-namespace`.
+
 ## Extending the Vite Configuration
 
 You can customize the Vite configuration for your ApostropheCMS project in two ways:
