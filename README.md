@@ -175,22 +175,79 @@ While the `apos` build (the code living in every module `ui/apos` directory) is 
 
 ```javascript
 // Current file: modules/another-module/ui/src/index.js
-// Actual import path: modules/my-module/ui/src/lib/utils.js
-import utils from 'Modules/my-module/lib/utils.js';
+// Actual import path: modules/some-module/ui/src/lib/utils.js
+import utils from 'Modules/some-module/lib/utils.js';
 ```
 
-`@/` alias is available for both public and admin UI builds and allows you to import files from the entire project source code.
+`@/` alias is available for both public and admin UI builds and allows you to import files from the entire project source code. It follows the same path as your orignal source code, but skips the `ui/` part of the path.
 
 ```javascript
 // Current file: any file in any module inside of the `ui/` folder
-// Actual path: modules/my-module/ui/src/lib/utils.js
-import utils from '@/modules/my-module/src/lib/utils.js';
+// Actual path: modules/some-module/ui/src/lib/utils.js
+import utils from '@/some-module/src/lib/utils.js';
 
-// Actual path: modules/my-module/ui/apos/mixins/SomeMixin.js
-import SomeMixin from '@/modules/my-module/apos/mixins/SomeMixin.js';
+// Actual path: modules/some-module/ui/apos/mixins/SomeMixin.js
+import SomeMixin from '@/some-module/apos/mixins/SomeMixin.js';
 ```
 
 > Warning: You gain access to `public` builds from within the `apos` build, and vice versa, when using the `@/` alias. You should use it with caution, because it might lead to situations where imports are not resolved correctly. This would happen if the imported file (or its deep imports) contains `Modules/` aliased imports. In other hand `@/` is more developer friendly, allows auto-completion and is more intuitive and readable. Be sure to include mostly sources from your current build and ensure no imported sources contain `Modules/` aliased imports when cross-importing from another build.
+
+### Importing Static Assets and Sass
+
+The way we integrate Vite with ApostropheCMS allows now direct imports (including dynamic imports) of assets like images, fonts, and other files. You can import them directly in your vanilla JS/JS framework code:
+
+```javascript
+// You can use aliases to import assets or a relative path when in the same module.
+// Actual path: modules/some-module/ui/assets/logo.svg
+import logo from '@/some-module/assets/logo.svg';
+// Logo now cotains the path to the image and will be normallized and correctly
+// injected when building the project for production.
+```
+You can import Sass as well:
+
+```scss
+/* You can use aliases to import assets */
+/* Actual path: modules/some-module/ui/scss/_styles.scss */
+@use '@/some-module/scss/styles';
+```
+
+Vue JS supports importing assets directly in the template:
+
+```vue
+<template>
+  <img src="@/some-module/assets/logo.svg" alt="My logo" />
+</template>
+```
+
+In other frameworks (but also in Vue), you can use the `import` statement to reference the asset:
+
+```jsx
+import logo from '@/some-module/assets/logo.svg';
+
+function MyComponent() {
+  return <img src={logo} alt="My logo" />;
+}
+```
+
+CSS URL can be resolved in two ways. You can use the documented in the Apostrophe docs `some-module/public` folder and `/modules/some-module/font.ttf` URL where your file is located in `./modules/some-module/public/font.ttf`
+
+```css
+@font-face {
+  font-family: MyFont;
+  src: url("/modules/some-module/font.ttf") format("truetype");
+}
+```
+
+Or you can use the absolute sources root path `/src/some-module/fonts/font.ttf` where your file is located in `./modules/some-module/ui/fonts/font.ttf`. You can inspect the sources of your project that are copied in the central location `apos-build/@postrophecms/vite/default` directory. This is the root that Vite uses to resolve the paths and build the project.
+
+```css
+@font-face {
+  font-family: Inter;
+  src: url("/src/some-module/fonts/font.ttf") format("truetype");
+}
+```
+
+The same rules apply to paths in the `url()` function in CSS files.
 
 ## Configuring Your Code Editor
 
@@ -217,6 +274,8 @@ Every editor, that understands the `jsconfig.json` or `tsconfig.json` file, can 
 
 > Note: If you change your project asset namespace you have to adjust the `baseUrl` and `exclude` path accordingly. For example, if your project namespace is `my-namespace`, the `baseUrl` should be `./apos-build/@apostrophecms/vite/my-namespace` and the `exclude` path - `apos-build/@apostrophecms/vite/my-namespace/dist`.
 
+> Note: If you follow the import in your editor (e.g. Ctrl + Click in VSCode) it will lead to the `apos-build` directory and NOT the original source code. This is because the `apos-build` directory contains a copy of the entire project source code (including Admin UI) from all modules (local and npm) and is the actual source directory used by Vite to build the project.
+
 ## Extending the Vite Configuration
 
 You can customize the Vite configuration for your ApostropheCMS project in two ways:
@@ -226,7 +285,7 @@ You can customize the Vite configuration for your ApostropheCMS project in two w
 Use this approach to configure Vite settings within individual ApostropheCMS modules:
 
 ```javascript
-// modules/my-module/index.js
+// modules/some-module/index.js
 module.exports = {
   build: {
     vite: {
