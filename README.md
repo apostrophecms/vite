@@ -164,14 +164,14 @@ You can combine these options to precisely control when your component appears. 
 
 ## Provided Vite Configuration
 
-While the `apos` build (the code living in every module `ui/apos` directory) is fully preconfigured and doesn't allow for customization, the `public` build (the code imported within `ui/src/` ) is fully customizable and contains a minimal configuration to get you started:
-- A PostCSS plugin to handle core features as "Breakpoint Preview" (when enabled)
+While the `apos` build (the code living in the`ui/apos/` directory of every module) is fully preconfigured and doesn't allow for customization, the `public` build (the code imported within `ui/src/` ) is fully customizable and contains a minimal configuration to get you started:
+- A PostCSS plugin to handle core features such as "Breakpoint Preview" (when enabled)
 - `Modules/` alias to simplify module within the same build 
 - `@/` alias to allow easy access to cross-module and cross-build source code
 
 ### Pre-configured Aliases
 
-`Modules/` alias is available for both public and admin UI builds and allows you to import modules in your project without worrying about the relative path, but restricts you to only sources inside of `ui/src` directories.
+The `Modules/` alias is available for both public and admin UI builds and allows you to import modules in your project without worrying about the relative path, but restricts you to only sources inside of `ui/src/` directories.
 
 ```javascript
 // Current file: modules/another-module/ui/src/index.js
@@ -190,7 +190,7 @@ import utils from '@/some-module/src/lib/utils.js';
 import SomeMixin from '@/some-module/apos/mixins/SomeMixin.js';
 ```
 
-> Warning: You gain access to `public` builds from within the `apos` build, and vice versa, when using the `@/` alias. You should use it with caution, because it might lead to situations where imports are not resolved correctly. This would happen if the imported file (or its deep imports) contains `Modules/` aliased imports. In other hand `@/` is more developer friendly, allows auto-completion and is more intuitive and readable. Be sure to include mostly sources from your current build and ensure no imported sources contain `Modules/` aliased imports when cross-importing from another build.
+> Warning: You gain access to `public` builds from within the `apos` build, and vice versa, when using the `@/` alias. You should use it with caution, because it might lead to situations where imports are not resolved correctly. This would happen if the imported file (or its deep imports) contains `Modules/` aliased imports. On the other hand, `@/` is more developer friendly, allows auto-completion, and is more intuitive and readable. Be sure to include mostly sources from your current build and ensure no imported sources contain `Modules/` aliased imports when cross-importing from another build.
 
 ### Importing Static Assets and Sass
 
@@ -326,7 +326,7 @@ The configuration format follows the standard [Vite configuration options](https
 
 ### Hot Module Replacement
 - HMR only monitors existing `anyModule/ui` directories. If you add a new `ui` directory to a module, restart the server to enable HMR for that module. With default ApostropheCMS starter kits using `nodemon`, simply type `rs` in the terminal and press Enter.
-- The `apos` HMR won't work when the `public` build contains Vue sources (transformed by the `@vitejs/plugin-vue` plugin). The HMR for the `public` build should still work as expected. The problem is related to the fact that the page would contains two Vue instances (core and reactive) instances, which is not currently supported. We are researching solutions to this issue.
+- The `apos` HMR won't work when the `public` build contains Vue sources (transformed by the `@vitejs/plugin-vue` plugin). The HMR for the `public` build should still work as expected. The problem is related to the fact that the page would contain two Vue instances (core and reactive) instances, which is not currently supported. We are researching solutions to this issue.
 
 ### Public Assets
 - Changes to `ui/public` directories don't trigger HMR or page reloads as they require a process restart
