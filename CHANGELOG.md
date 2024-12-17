@@ -1,5 +1,11 @@
 # Changelog
 
+## UNRELESED
+
+### Fixes
+
+* Uses `postcss-viewport-to-container-toggle` plugin only on `public` builds to avoid breaking apos UI out of `apos-refreshable`.
+
 ## 1.0.0-beta.2 (2024-11-20)
 
 ### Adds
