@@ -1,5 +1,11 @@
 # Changelog
 
+## UNRELEASED
+
+### Changes
+
+* Bumbs `eslint-config-apostrophe` to `5`, fixes errors, removes unused dependencies.
+
 ## 1.0.0 (2024-12-18)
 
 ### Fixes
