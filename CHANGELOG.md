@@ -5,6 +5,7 @@
 ### Changes
 
 * Bumbs `eslint-config-apostrophe` to `5`, fixes errors, removes unused dependencies.
+* Bumps to `vite@6`
 
 ## 1.0.0 (2024-12-18)
 
