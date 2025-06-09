@@ -6,6 +6,7 @@
 
 * Bumbs `eslint-config-apostrophe` to `5`, fixes errors, removes unused dependencies.
 * Bumps to `vite@6`
+* Bumps `postcss-viewport-to-container-toggle` to `2`.
 
 ## 1.0.0 (2024-12-18)
 
