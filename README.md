@@ -322,6 +322,75 @@ The configuration format follows the standard [Vite configuration options](https
 
 > Note: All Vite configurations are merged sequentially - first across modules (following module registration order, with later modules taking precedence), and finally with the project configuration file, which takes ultimate precedence.
 
+## pnpm and dependency resolution
+
+This module ships with a small Vite plugin that improves resolution of transitive dependencies when using pnpm, workspaces, or symlinked modules. pnpm doesn't hoist dependencies the same way npm/yarn do, which can lead to packages (like esm-only utilities) not being found from your project root during Vite builds.
+
+What it does, in short:
+- Lets Vite resolve normally first (so nothing changes when it already works)
+- If that fails, it tries Node resolution from multiple roots, in order: workspace root (if any), project root, and each package specified in a configurable package list
+- Works with ESM and CJS packages; symlinks are resolved; preserveSymlinks is enabled so linked modules behave predictably
+
+### Defaults
+- The plugin searches from two packages by default: `@apostrophecms/vite` and `apostrophe`.
+- You can extend this list from your project.
+
+### Add more packages to search
+You can contribute additional package names via either your project `package.json` or your project Vite config (`apos.vite.config.*`). The values are merged (deduplicated) in this order: defaults → package.json → project vite config.
+
+- package.json
+```jsonc
+{
+  // ...
+  "aposVite": {
+    "resolvePackageRoots": [
+      "some-dep",
+      "@scope/another-dep"
+    ]
+  }
+}
+```
+
+- apos.vite.config.js or apos.vite.config.mjs
+```js
+// apos.vite.config.js / .mjs
+import { defineConfig } from '@apostrophecms/vite/vite';
+
+export default defineConfig({
+  // ...
+  aposVite: {
+    resolvePackageRoots: [
+      'some-dep',
+      '@scope/another-dep'
+    ]
+  }
+});
+```
+
+### Disable the resolver entirely
+If you'd like to turn the pnpm resolver off, pass an empty array from either location. An explicit empty array disables the plugin.
+
+- package.json
+```jsonc
+{
+  "aposVite": {
+    "resolvePackageRoots": []
+  }
+}
+```
+
+- apos.vite.config.js / .mjs
+```js
+export default {
+  aposVite: {
+    resolvePackageRoots: []
+  }
+};
+```
+
+### Notes
+- Workspace support: the resolver automatically considers your pnpm workspace root (if present)
+
 ## Limitations and Known Issues
 
 ### Hot Module Replacement
