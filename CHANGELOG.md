@@ -1,5 +1,15 @@
 # Changelog
 
+## UNRELEASED
+
+### Changes
+
+* Intercept 403 Vite middleware responses to provide helpful error messages for host validation issues.
+
+### Fixes
+
+### Adds
+
 ## 1.1.0 (2025-06-11)
 
 ### Changes

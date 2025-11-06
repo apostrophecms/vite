@@ -66,6 +66,7 @@ describe('@apostrophecms/vite', function () {
         modules: getAppConfig()
       });
     });
+
     it('should apply manifest', async function () {
       const manifest = {
         // Circular dependency with `bar.js`
@@ -253,6 +254,67 @@ describe('@apostrophecms/vite', function () {
       ];
 
       assert.deepEqual(actual, expected);
+    });
+
+    describe('isHostnameAllowed', function () {
+      it('should allow localhost by default', function () {
+        assert(apos.vite.isHostnameAllowed('localhost', undefined));
+        assert(apos.vite.isHostnameAllowed('localhost:3000', undefined));
+      });
+
+      it('should allow 127.0.0.1 by default', function () {
+        assert(apos.vite.isHostnameAllowed('127.0.0.1', undefined));
+        assert(apos.vite.isHostnameAllowed('127.0.0.1:3000', undefined));
+      });
+
+      it('should allow ::1 (IPv6) by default', function () {
+        assert(apos.vite.isHostnameAllowed('::1', undefined));
+        assert(apos.vite.isHostnameAllowed('[::1]:3000', undefined));
+      });
+
+      it('should reject custom hostname by default', function () {
+        assert(!apos.vite.isHostnameAllowed('example.com', undefined));
+        assert(!apos.vite.isHostnameAllowed('example.com:3000', undefined));
+      });
+
+      it('should allow exact match in allowedHosts', function () {
+        assert(apos.vite.isHostnameAllowed('example.com', [ 'example.com' ]));
+        assert(apos.vite.isHostnameAllowed('example.com:3000', [ 'example.com' ]));
+      });
+
+      it('should support wildcard patterns', function () {
+        assert(apos.vite.isHostnameAllowed('sub.example.com', [ '.example.com' ]));
+        assert(apos.vite.isHostnameAllowed('example.com', [ '.example.com' ]));
+        assert(!apos.vite.isHostnameAllowed('notexample.com', [ '.example.com' ]));
+      });
+
+      it('should allow all when allowedHosts is true', function () {
+        assert(apos.vite.isHostnameAllowed('anything.com', true));
+        assert(apos.vite.isHostnameAllowed('192.168.1.1', true));
+      });
+
+      it('should handle IPv6 with port in brackets', function () {
+        assert(apos.vite.isHostnameAllowed('[::1]:3000', [ '::1' ]));
+        assert(apos.vite.isHostnameAllowed('[2001:db8::1]:3000', [ '2001:db8::1' ]));
+      });
+
+      it('should handle IPv6 without port', function () {
+        assert(apos.vite.isHostnameAllowed('::1', [ '::1' ]));
+        assert(apos.vite.isHostnameAllowed('2001:db8::1', [ '2001:db8::1' ]));
+      });
+
+      it('should return true for empty hostname', function () {
+        assert(apos.vite.isHostnameAllowed('', undefined));
+        assert(apos.vite.isHostnameAllowed(null, undefined));
+      });
+
+      it('should check multiple allowed hosts', function () {
+        const allowed = [ 'example.com', 'test.local', 'localhost' ];
+        assert(apos.vite.isHostnameAllowed('example.com', allowed));
+        assert(apos.vite.isHostnameAllowed('test.local', allowed));
+        assert(apos.vite.isHostnameAllowed('localhost', allowed));
+        assert(!apos.vite.isHostnameAllowed('notallowed.com', allowed));
+      });
     });
   });
 
