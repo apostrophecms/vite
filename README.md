@@ -41,6 +41,29 @@ require('apostrophe')({
 
 ## Configuration
 
+## Module Options
+
+### `resolvePackageRoots` (default: `false`)
+
+Controls the resolution of transitive dependencies when using pnpm or workspace setups. Can be configured as:
+- `true` - Enable resolution for default packages (`@apostrophecms/vite`, `apostrophe`)
+- `false` or `[]` - Disable custom resolution
+- `Array<string>` - Specify which packages to resolve (merged with defaults)
+
+Configure this option in your module configuration:
+
+```javascript
+modules: {
+  '@apostrophecms/vite': {
+    options: {
+      resolvePackageRoots: true // or ['package-name']
+    }
+  }
+}
+```
+
+For more details, examples, and additional configuration methods, see the [pnpm and dependency resolution](#pnpm-and-dependency-resolution) section.
+
 ## Hot Module Replacement Configuration
 
 By default, HMR is enabled for your project's public UI code. All configuration is handled through ApostropheCMS's core asset module options, simplifying setup and maintenance.
@@ -329,14 +352,75 @@ This module ships with a small Vite plugin that improves resolution of transitiv
 What it does, in short:
 - Lets Vite resolve normally first (so nothing changes when it already works)
 - If that fails, it tries Node resolution from multiple roots, in order: workspace root (if any), project root, and each package specified in a configurable package list
-- Works with ESM and CJS packages; symlinks are resolved; preserveSymlinks is enabled so linked modules behave predictably
+- Works with ESM and CJS packages; symlinks are resolved; when active, sets `preserveSymlinks: false` to prevent module duplication
 
 ### Defaults
-- The plugin searches from two packages by default: `@apostrophecms/vite` and `apostrophe`.
-- You can extend this list from your project.
+- The plugin is **disabled by default**.
+- You must explicitly enable it from your project.
+
+### Configuration Priority
+The plugin checks for configuration in the following order (highest to lowest priority):
+
+1. **Module options** - Configure in `app.js` when registering the module
+2. **Vite config file** - `apos.vite.config.js` or `apos.vite.config.mjs`
+3. **package.json** - Under the `aposVite` key
+
+### Enable with default packages
+To enable the plugin with default packages (`@apostrophecms/vite` and `apostrophe`), set `resolvePackageRoots: true`:
+
+- Module options (highest priority)
+```javascript
+// app.js
+require('apostrophe')({
+  shortName: 'my-project',
+  modules: {
+    '@apostrophecms/vite': {
+      options: {
+        resolvePackageRoots: true
+      }
+    }
+  }
+});
+```
+
+- package.json
+```jsonc
+{
+  // ...
+  "aposVite": {
+    "resolvePackageRoots": true
+  }
+}
+```
+
+- apos.vite.config.js or apos.vite.config.mjs
+```js
+import { defineConfig } from '@apostrophecms/vite/vite';
+
+export default defineConfig({
+  // ...
+  aposVite: {
+    resolvePackageRoots: true
+  }
+});
+```
 
 ### Add more packages to search
-You can contribute additional package names via either your project `package.json` or your project Vite config (`apos.vite.config.*`). The values are merged (deduplicated) in this order: defaults → package.json → project vite config.
+You can specify additional package names. When you provide an array, it will be **merged with the default packages** (`@apostrophecms/vite` and `apostrophe`).
+
+- Module options (highest priority)
+```javascript
+// app.js
+require('apostrophe')({
+  modules: {
+    '@apostrophecms/vite': {
+      options: {
+        resolvePackageRoots: [ 'some-dep', '@scope/another-dep' ]
+      }
+    }
+  }
+});
+```
 
 - package.json
 ```jsonc
@@ -353,7 +437,6 @@ You can contribute additional package names via either your project `package.jso
 
 - apos.vite.config.js or apos.vite.config.mjs
 ```js
-// apos.vite.config.js / .mjs
 import { defineConfig } from '@apostrophecms/vite/vite';
 
 export default defineConfig({
@@ -367,14 +450,30 @@ export default defineConfig({
 });
 ```
 
-### Disable the resolver entirely
-If you'd like to turn the pnpm resolver off, pass an empty array from either location. An explicit empty array disables the plugin.
+### Disable the resolver
+The resolver is disabled by default. Removing the configuration or explicitly set it to `false` or an empty array explicitly disables it:
+
+- Module options (highest priority)
+```javascript
+// app.js
+require('apostrophe')({
+  modules: {
+    '@apostrophecms/vite': {
+      options: {
+        resolvePackageRoots: false
+        // or: resolvePackageRoots: []
+      }
+    }
+  }
+});
+```
 
 - package.json
 ```jsonc
 {
   "aposVite": {
-    "resolvePackageRoots": []
+    "resolvePackageRoots": false
+    // or: "resolvePackageRoots": []
   }
 }
 ```
@@ -383,13 +482,15 @@ If you'd like to turn the pnpm resolver off, pass an empty array from either loc
 ```js
 export default {
   aposVite: {
-    resolvePackageRoots: []
+    resolvePackageRoots: false
+    // or: resolvePackageRoots: []
   }
 };
 ```
 
 ### Notes
 - Workspace support: the resolver automatically considers your pnpm workspace root (if present)
+- The higher priority configuration source takes precedence; lower priority sources are only checked if the higher priority ones are not defined
 
 ## Limitations and Known Issues
 
