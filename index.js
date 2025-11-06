@@ -92,15 +92,15 @@ module.exports = {
           res.writeHead = function(code, ...args) {
             if (
               code === 403 &&
-              hostname && 
+              hostname &&
               !self.isHostnameAllowed(
                 hostname,
                 self.viteDevInstance?.config?.server?.allowedHosts
               )
             ) {
-                self.apos.util.warnDevOnce(
-                  'vite-dev-server-host-validation',
-                  'Vite dev server blocked a request from hostname: ' + hostname + '\n' +
+              self.apos.util.warnDevOnce(
+                'vite-dev-server-host-validation',
+                'Vite dev server blocked a request from hostname: ' + hostname + '\n' +
                   '   This hostname is not in the allowed hosts list.\n' +
                   '   To fix this, add the hostname to your Vite configuration:\n\n' +
                   '   // apos.vite.config.js\n' +
@@ -110,7 +110,7 @@ module.exports = {
                   '       allowedHosts: [\'' + hostname.split(':')[0] + '\', \'localhost\']\n' +
                   '     }\n' +
                   '   });\n'
-                );
+              );
             }
             return originalWriteHead.apply(this, [ code, ...args ]);
           };
