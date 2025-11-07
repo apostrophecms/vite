@@ -1,5 +1,15 @@
 # Changelog
 
+## UNRELEASED
+
+### Changes
+
+### Fixes
+
+### Adds
+
+* Add resolve plugin for pnpm. Explicitly enable it via Vite config or package.json. More info in the README.
+
 ## 1.1.0 (2025-06-11)
 
 ### Changes

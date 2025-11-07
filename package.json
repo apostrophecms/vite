@@ -10,7 +10,7 @@
     }
   },
   "scripts": {
-    "eslint": "eslint --ext .js .",
+    "eslint": "eslint --ext .js,.mjs .",
     "lint": "npm run eslint",
     "spec": "mocha",
     "test": "npm run lint && npm run spec"
