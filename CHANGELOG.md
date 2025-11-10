@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.1.1-alpha.1 (2025-11-10)
+
+* Fixes for native Windows Node.js without WSL.
+
 ## 1.1.0 (2025-06-11)
 
 ### Changes
