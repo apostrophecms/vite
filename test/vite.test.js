@@ -315,6 +315,17 @@ describe('@apostrophecms/vite', function () {
         assert(apos.vite.isHostnameAllowed('localhost', allowed));
         assert(!apos.vite.isHostnameAllowed('notallowed.com', allowed));
       });
+
+      it('should handle credentials in hostname', function () {
+        assert(apos.vite.isHostnameAllowed('user:pass@localhost', undefined));
+        assert(apos.vite.isHostnameAllowed('user:pass@localhost:3000', undefined));
+        assert(apos.vite.isHostnameAllowed('user:pass@example.com', [ 'example.com' ]));
+        assert(apos.vite.isHostnameAllowed('user:pass@[::1]:3000', undefined));
+        assert(apos.vite.isHostnameAllowed('user:pass@[2001:db8::1]:3000', [ '2001:db8::1' ]));
+        // Bare IPv6 with credentials (no brackets, no port)
+        // user:pass@::1:3000 is ambiguous/invalid
+        assert(apos.vite.isHostnameAllowed('user:pass@::1', undefined));
+      });
     });
   });
 

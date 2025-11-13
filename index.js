@@ -240,36 +240,15 @@ module.exports = {
           return true;
         }
 
-        // Remove port from hostname for comparison
-        // Handle IPv6 addresses in brackets: [::1]:3000 or plain IPv6: ::1
-        let hostWithoutPort = hostname;
-        if (hostname.startsWith('[')) {
-          // IPv6 with port: [::1]:3000
-          const bracketEnd = hostname.indexOf(']');
-          if (bracketEnd !== -1) {
-            hostWithoutPort = hostname.substring(1, bracketEnd);
-          }
-        } else if (hostname.includes(':')) {
-          // Could be IPv4:port or IPv6 without brackets
-          // Check if it looks like IPv6 (multiple colons)
-          const colonCount = (hostname.match(/:/g) || []).length;
-          if (colonCount === 1) {
-            // Likely IPv4:port or hostname:port
-            hostWithoutPort = hostname.split(':')[0];
-          }
-          // If multiple colons, assume it's IPv6 without port (e.g., ::1)
+        if (allowedHosts === true) {
+          return true;
         }
+
+        const hostWithoutPort = parseHostname(hostname);
 
         // If allowedHosts is not set, Vite allows localhost and 127.0.0.1
         if (!allowedHosts) {
-          return hostWithoutPort === 'localhost' ||
-                 hostWithoutPort === '127.0.0.1' ||
-                 hostWithoutPort === '::1';
-        }
-
-        // If allowedHosts is true, allow all hosts
-        if (allowedHosts === true) {
-          return true;
+          return [ 'localhost', '127.0.0.1', '::1' ].includes(hostWithoutPort);
         }
 
         // Check if hostname matches any allowed host pattern
@@ -285,6 +264,37 @@ module.exports = {
           }
           return false;
         });
+
+        function parseHostname(hostname) {
+          const hostnameForUrl = normalizeHostnameForUrl(hostname);
+          const { hostname: parsedHostname } = new URL(
+            `https://${hostnameForUrl}`
+          );
+          return parsedHostname.replace(/^\[|\]$/g, '');
+        }
+
+        // Helper function to normalize hostname for URL constructor
+        // Handle IPv6 addresses in brackets: [::1]:3000 or plain IPv6: ::1
+        // Handle credentials user:pass@host
+        function normalizeHostnameForUrl(hostname) {
+          if (hostname.includes('@')) {
+            // user:pass@host or user:pass@::1 or user:pass@[::1]:port
+            const atIndex = hostname.lastIndexOf('@');
+            const hostPart = hostname.substring(atIndex + 1);
+            const colonCount = (hostPart.match(/:/g) || []).length;
+            // If host part has multiple colons and no brackets, it's a bare IPv6
+            if (colonCount > 1 && !hostPart.startsWith('[')) {
+              return hostname.substring(0, atIndex + 1) + `[${hostPart}]`;
+            }
+          } else {
+            // host:port or ::1 or [::1]:port
+            const colonCount = (hostname.match(/:/g) || []).length;
+            if (colonCount > 1 && !hostname.startsWith('[')) {
+              return `[${hostname}]`;
+            }
+          }
+          return hostname;
+        }
       },
       // Internal implementation.
       ...internalLib(self)
