@@ -268,7 +268,6 @@ describe('@apostrophecms/vite', function () {
       });
 
       it('should allow ::1 (IPv6) by default', function () {
-        assert(apos.vite.isHostnameAllowed('::1', undefined));
         assert(apos.vite.isHostnameAllowed('[::1]:3000', undefined));
       });
 
@@ -299,8 +298,8 @@ describe('@apostrophecms/vite', function () {
       });
 
       it('should handle IPv6 without port', function () {
-        assert(apos.vite.isHostnameAllowed('::1', [ '::1' ]));
-        assert(apos.vite.isHostnameAllowed('2001:db8::1', [ '2001:db8::1' ]));
+        assert(apos.vite.isHostnameAllowed('[::1]', [ '::1' ]));
+        assert(apos.vite.isHostnameAllowed('[2001:db8::1]', [ '2001:db8::1' ]));
       });
 
       it('should return true for empty hostname', function () {
@@ -322,9 +321,6 @@ describe('@apostrophecms/vite', function () {
         assert(apos.vite.isHostnameAllowed('user:pass@example.com', [ 'example.com' ]));
         assert(apos.vite.isHostnameAllowed('user:pass@[::1]:3000', undefined));
         assert(apos.vite.isHostnameAllowed('user:pass@[2001:db8::1]:3000', [ '2001:db8::1' ]));
-        // Bare IPv6 with credentials (no brackets, no port)
-        // user:pass@::1:3000 is ambiguous/invalid
-        assert(apos.vite.isHostnameAllowed('user:pass@::1', undefined));
       });
     });
   });

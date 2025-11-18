@@ -266,34 +266,10 @@ module.exports = {
         });
 
         function parseHostname(hostname) {
-          const hostnameForUrl = normalizeHostnameForUrl(hostname);
           const { hostname: parsedHostname } = new URL(
-            `https://${hostnameForUrl}`
+            `https://${hostname}`
           );
           return parsedHostname.replace(/^\[|\]$/g, '');
-        }
-
-        // Helper function to normalize hostname for URL constructor
-        // Handle IPv6 addresses in brackets: [::1]:3000 or plain IPv6: ::1
-        // Handle credentials user:pass@host
-        function normalizeHostnameForUrl(hostname) {
-          if (hostname.includes('@')) {
-            // user:pass@host or user:pass@::1 or user:pass@[::1]:port
-            const atIndex = hostname.lastIndexOf('@');
-            const hostPart = hostname.substring(atIndex + 1);
-            const colonCount = (hostPart.match(/:/g) || []).length;
-            // If host part has multiple colons and no brackets, it's a bare IPv6
-            if (colonCount > 1 && !hostPart.startsWith('[')) {
-              return hostname.substring(0, atIndex + 1) + `[${hostPart}]`;
-            }
-          } else {
-            // host:port or ::1 or [::1]:port
-            const colonCount = (hostname.match(/:/g) || []).length;
-            if (colonCount > 1 && !hostname.startsWith('[')) {
-              return `[${hostname}]`;
-            }
-          }
-          return hostname;
         }
       },
       // Internal implementation.
