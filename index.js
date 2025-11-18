@@ -245,14 +245,20 @@ module.exports = {
         }
 
         const hostWithoutPort = parseHostname(hostname);
+        if (!hostWithoutPort) {
+          return false;
+        }
 
         // If allowedHosts is not set, Vite allows localhost and 127.0.0.1
         if (!allowedHosts) {
           return [ 'localhost', '127.0.0.1', '::1' ].includes(hostWithoutPort);
         }
 
-        // Check if hostname matches any allowed host pattern
+        // Check if hostname matches any allowed host pattern.
+        // Normalize by removing square brackets for IPv6 addresses,
+        // the same as done in the parseHostname.
         return allowedHosts.some(allowedHost => {
+          allowedHost = allowedHost.replace(/^\[|\]$/g, '');
           // Exact match
           if (allowedHost === hostWithoutPort) {
             return true;
@@ -266,10 +272,23 @@ module.exports = {
         });
 
         function parseHostname(hostname) {
-          const { hostname: parsedHostname } = new URL(
-            `https://${hostname}`
-          );
-          return parsedHostname.replace(/^\[|\]$/g, '');
+          try {
+            const { hostname: parsedHostname } = new URL(
+              `https://${hostname}`
+            );
+            return parsedHostname.replace(/^\[|\]$/g, '');
+          } catch (e) {
+            self.logWarn(
+              'parse-hostname-failed',
+              `Failed to parse hostname: ${hostname}`,
+              {
+                hostname,
+                error: e.message,
+                stack: e.stack.split('\n').slice(1).map(line => line.trim())
+              }
+            );
+            return null;
+          }
         }
       },
       // Internal implementation.
