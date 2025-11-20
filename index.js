@@ -83,6 +83,41 @@ module.exports = {
           if (!self.shouldCreateDevServer || !self.viteDevInstance) {
             return res.status(403).send('forbidden');
           }
+
+          // Intercept 403 responses to provide helpful error messages
+          // for host validation issues
+          const originalWriteHead = res.writeHead;
+          const hostname = req.headers.host;
+
+          res.writeHead = function(code, ...args) {
+            if (
+              code === 403 &&
+              hostname &&
+              !self.isHostnameAllowed(
+                hostname,
+                self.viteDevInstance?.config?.server?.allowedHosts
+              )
+            ) {
+              const hostnameWithoutPort = hostname.includes('[')
+                ? hostname.split(']')[0] + ']'
+                : hostname.split(':')[0];
+              self.apos.util.warnDevOnce(
+                'vite-dev-server-host-validation',
+                'Vite dev server blocked a request from hostname: ' + hostname + '\n' +
+                  '   This hostname is not in the allowed hosts list.\n' +
+                  '   To fix this, add the hostname to your Vite configuration:\n\n' +
+                  '   // apos.vite.config.js\n' +
+                  '   import { defineConfig } from \'@apostrophecms/vite/vite\';\n\n' +
+                  '   export default defineConfig({\n' +
+                  '     server: {\n' +
+                  '       allowedHosts: [\'' + hostnameWithoutPort + '\', \'localhost\']\n' +
+                  '     }\n' +
+                  '   });\n'
+              );
+            }
+            return originalWriteHead.apply(this, [ code, ...args ]);
+          };
+
           // Do not provide `next` to the middleware, we want to stop the chain here
           // if the request is handled by Vite. It provides its own 404 handler.
           self.viteDevInstance.middlewares(req, res);
@@ -200,6 +235,64 @@ module.exports = {
       async reset() {
         await fs.remove(self.buildRoot);
         await fs.mkdir(self.buildRoot, { recursive: true });
+      },
+      // Check if a hostname is allowed based on Vite's allowedHosts configuration
+      // Implements the same logic as Vite's host validation
+      isHostnameAllowed(hostname, allowedHosts) {
+        if (!hostname) {
+          return true;
+        }
+
+        if (allowedHosts === true) {
+          return true;
+        }
+
+        const hostWithoutPort = parseHostname(hostname);
+        if (!hostWithoutPort) {
+          return false;
+        }
+
+        // If allowedHosts is not set, Vite allows localhost and 127.0.0.1
+        if (!allowedHosts) {
+          return [ 'localhost', '127.0.0.1', '::1' ].includes(hostWithoutPort);
+        }
+
+        // Check if hostname matches any allowed host pattern.
+        // Normalize by removing square brackets for IPv6 addresses,
+        // the same as done in the parseHostname.
+        return allowedHosts.some(allowedHost => {
+          allowedHost = allowedHost.replace(/^\[|\]$/g, '');
+          // Exact match
+          if (allowedHost === hostWithoutPort) {
+            return true;
+          }
+          // Wildcard pattern (e.g., '.example.com')
+          if (allowedHost.startsWith('.')) {
+            return hostWithoutPort.endsWith(allowedHost) ||
+                   hostWithoutPort === allowedHost.slice(1);
+          }
+          return false;
+        });
+
+        function parseHostname(hostname) {
+          try {
+            const { hostname: parsedHostname } = new URL(
+              `https://${hostname}`
+            );
+            return parsedHostname.replace(/^\[|\]$/g, '');
+          } catch (e) {
+            self.logWarn(
+              'parse-hostname-failed',
+              `Failed to parse hostname: ${hostname}`,
+              {
+                hostname,
+                error: e.message,
+                stack: e.stack.split('\n').slice(1).map(line => line.trim())
+              }
+            );
+            return null;
+          }
+        }
       },
       // Internal implementation.
       ...internalLib(self)
