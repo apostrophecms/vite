@@ -98,6 +98,9 @@ module.exports = {
                 self.viteDevInstance?.config?.server?.allowedHosts
               )
             ) {
+              const hostnameWithoutPort = hostname.includes('[')
+                ? hostname.split(']')[0] + ']'
+                : hostname.split(':')[0];
               self.apos.util.warnDevOnce(
                 'vite-dev-server-host-validation',
                 'Vite dev server blocked a request from hostname: ' + hostname + '\n' +
@@ -107,7 +110,7 @@ module.exports = {
                   '   import { defineConfig } from \'@apostrophecms/vite/vite\';\n\n' +
                   '   export default defineConfig({\n' +
                   '     server: {\n' +
-                  '       allowedHosts: [\'' + hostname.split(':')[0] + '\', \'localhost\']\n' +
+                  '       allowedHosts: [\'' + hostnameWithoutPort + '\', \'localhost\']\n' +
                   '     }\n' +
                   '   });\n'
               );
